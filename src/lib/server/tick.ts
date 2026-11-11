@@ -6,6 +6,7 @@ import { adminDb, AUDIO_BUCKET } from "./db";
 import { runExtraction, type ExtractOutput } from "./extract";
 import { sendPush } from "./push";
 import { getTranscript, submitTranscript } from "./stt";
+import { hasTrash } from "./trash";
 
 type Rec = {
   id: string; user_id: string; status: string; attempts: number; started_at: string; time_zone: string;
@@ -19,6 +20,7 @@ export type TickReport = {
   polled: { id: string; result: string }[];
   steps: { id: string; step: string; result: string }[];
   audio_deleted: number;
+  trash_emptied: number;
   errors: string[];
 };
 
@@ -158,7 +160,7 @@ async function extract(rec: Rec): Promise<string> {
 export async function runTick(budgetMs = 240_000): Promise<TickReport> {
   const db = adminDb();
   const started = Date.now();
-  const report: TickReport = { reminders_sent: [], swept: 0, polled: [], steps: [], audio_deleted: 0, errors: [] };
+  const report: TickReport = { reminders_sent: [], swept: 0, polled: [], steps: [], audio_deleted: 0, trash_emptied: 0, errors: [] };
 
   // 1. Due reminders first: they are time-sensitive and quick.
   try {
@@ -225,6 +227,19 @@ export async function runTick(budgetMs = 240_000): Promise<TickReport> {
       report.audio_deleted++;
     }
   } catch (e) { report.errors.push(`audio cleanup: ${msg(e)}`); }
+
+  // 6. Recordings in Trash for more than 30 days are erased for good: audio, transcript and items.
+  try {
+    if (await hasTrash()) {
+      const cutoff = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
+      const { data: gone } = await db.from("recordings").select("id, storage_path").lt("deleted_at", cutoff).limit(20);
+      for (const r of gone ?? []) {
+        if (r.storage_path) await db.storage.from(AUDIO_BUCKET).remove([r.storage_path]);
+        const { error } = await db.from("recordings").delete().eq("id", r.id);
+        if (error) report.errors.push(`trash: ${error.message}`); else report.trash_emptied++;
+      }
+    }
+  } catch (e) { report.errors.push(`trash: ${msg(e)}`); }
 
   return report;
 }

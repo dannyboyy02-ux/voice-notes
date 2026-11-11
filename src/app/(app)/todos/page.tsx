@@ -7,19 +7,24 @@ import { APPLE_MAX_ITEMS, appleRemindersLink } from "@/lib/apple";
 import { localIso, when } from "@/lib/format";
 import { ITEM_COLUMNS, type Item } from "@/lib/types";
 
+const day = (iso: string) => new Date(iso).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+
 function Row({ item, pill, onToggle, children }: { item: Item; pill?: React.ReactNode; onToggle: (i: Item) => void; children?: React.ReactNode }) {
   return (
     <div className="item" data-testid="item">
       <input type="checkbox" checked={item.state === "done"} onChange={() => onToggle(item)} aria-label={`Done: ${item.text}`} />
-      <div style={{ flex: 1 }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
         <div style={item.state === "done" ? { textDecoration: "line-through", opacity: 0.6 } : undefined}>
           {item.text} {pill}
           {item.apple_sent_at && <span className="pill ok" style={{ marginLeft: 6 }}>In Apple Reminders</span>}
         </div>
-        {item.recording_id && (
-          <Link className="small muted" href={`/notes/${item.recording_id}${item.at_ms !== null ? `?t=${item.at_ms}` : ""}`}>
-            {item.quote ? `“${item.quote.slice(0, 90)}”` : "From a recording"}
+        {/* Where it came from and when, as one line. Tapping it opens the recording at that moment. */}
+        {item.recording_id && item.recording ? (
+          <Link className="source" href={`/notes/${item.recording_id}${item.at_ms !== null ? `?t=${item.at_ms}` : ""}`} data-testid="item-source">
+            {item.recording.title ?? "Recording"} • {day(item.recording.started_at)}
           </Link>
+        ) : (
+          <span className="source">Added by hand • {day(item.created_at)}</span>
         )}
         {children}
       </div>
@@ -28,7 +33,7 @@ function Row({ item, pill, onToggle, children }: { item: Item; pill?: React.Reac
 }
 
 export default function TodosPage() {
-  const { db, refreshOverdue } = useApp();
+  const { db, trash, refreshOverdue } = useApp();
   const [items, setItems] = useState<Item[] | null>(null);
   const [apple, setApple] = useState(false);
   const [sent, setSent] = useState<string[]>([]);
@@ -37,13 +42,15 @@ export default function TodosPage() {
 
   const load = useCallback(async () => {
     const [{ data }, { data: settings }] = await Promise.all([
-      db.from("items").select(ITEM_COLUMNS).eq("is_test", false).in("state", ["suggested", "active", "done"]).order("created_at", { ascending: false }).limit(300),
+      db.from("items").select(`${ITEM_COLUMNS}, recording:recordings(title, started_at${trash ? ", deleted_at" : ""})`)
+        .eq("is_test", false).in("state", ["suggested", "active", "done"]).order("created_at", { ascending: false }).limit(300),
       db.from("settings").select("apple_reminders").maybeSingle(),
     ]);
-    setItems((data as Item[]) ?? []);
+    // Items from a recording that is in Trash are hidden until it is restored.
+    setItems(((data as unknown as Item[]) ?? []).filter((i) => !i.recording?.deleted_at));
     setApple(settings?.apple_reminders ?? false);
     refreshOverdue();
-  }, [db, refreshOverdue]);
+  }, [db, trash, refreshOverdue]);
   useEffect(() => {
     let live = true;
     (async () => { if (live) await load(); })();

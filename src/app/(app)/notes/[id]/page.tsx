@@ -4,13 +4,14 @@ import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useApp } from "@/components/AppShell";
+import { deleteRecording } from "@/lib/client/recordings";
 import { api } from "@/lib/client/supabase";
 import { duration, stamp, when } from "@/lib/format";
 import { STATUS_LABEL } from "@/lib/pipeline/steps";
 import { ITEM_COLUMNS, type Item, type Recording, type Utterance } from "@/lib/types";
 
 function Note() {
-  const { db } = useApp();
+  const { db, trash } = useApp();
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const jumpTo = useSearchParams().get("t");
@@ -68,9 +69,8 @@ function Note() {
     else setAudioUrl(data.signedUrl);
   };
   const remove = async () => {
-    if (!confirm("Delete this recording, its transcript and its items?")) return;
-    if (rec.storage_path) await db.storage.from("audio").remove([rec.storage_path]);
-    await db.from("recordings").delete().eq("id", id);
+    if (!confirm(trash ? "Move this recording to Trash? You can restore it for 30 days." : "Delete this recording, its transcript and its items for good?")) return;
+    await deleteRecording(db, rec, trash);
     router.push("/notes");
   };
   const toggle = async (i: Item) => {
@@ -151,7 +151,7 @@ function Note() {
             Read by {rec.model_used} · {rec.input_tokens ?? 0} tokens in, {rec.output_tokens ?? 0} out · about ${cost.toFixed(3)} for this recording
           </p>
         )}
-        <button className="btn secondary" onClick={remove}>Delete recording</button>
+        <button className="btn secondary" onClick={remove}>{trash ? "Move to Trash" : "Delete recording"}</button>
       </section>
     </>
   );

@@ -66,9 +66,15 @@ async function mockBackend(page: Page): Promise<Mock> {
       if (req.method() === "POST") {
         const body = req.postDataJSON();
         for (const row of Array.isArray(body) ? body : [body]) {
-          if (!mock.rows.some((r) => r.id === row.id)) mock.rows.push({ title: null, ...row });
+          if (!mock.rows.some((r) => r.id === row.id)) mock.rows.push({ title: null, deleted_at: null, ...row });
         }
         return json(route, [], 201);
+      }
+      if (req.method() === "PATCH") {
+        const target = url.searchParams.get("id")?.replace("eq.", "");
+        const patch = req.postDataJSON() as Record<string, unknown>;
+        mock.rows = mock.rows.map((r) => (r.id === target ? { ...r, ...patch } : r));
+        return json(route, [], 200);
       }
       if (req.method() === "DELETE") {
         const gone = url.searchParams.get("id")?.replace("eq.", "");
@@ -77,7 +83,9 @@ async function mockBackend(page: Page): Promise<Mock> {
       }
       const wantsObject = (req.headers()["accept"] ?? "").includes("vnd.pgrst.object");
       const id = url.searchParams.get("id")?.replace("eq.", "");
-      const rows = id ? mock.rows.filter((r) => r.id === id) : mock.rows;
+      const filter = url.searchParams.get("deleted_at");
+      const rows = (id ? mock.rows.filter((r) => r.id === id) : mock.rows).filter((r) =>
+        filter === "is.null" ? !r.deleted_at : filter === "not.is.null" ? !!r.deleted_at : true);
       return json(route, wantsObject ? (rows[0] ?? null) : rows, 200, { "content-range": `0-${rows.length}/${rows.length}` });
     }
     if (url.pathname.startsWith("/rest/v1/rpc/")) return json(route, {});
@@ -231,7 +239,7 @@ test("Zeus answers a question and keeps the conversation on screen", async ({ pa
   await expect(page.getByTestId("turn-assistant")).toHaveCount(2);
 });
 
-test("swiping a recording left reveals Delete, which removes it", async ({ page }) => {
+test("swiping a recording left moves it to Trash, where it can be restored", async ({ page }) => {
   const mock = await mockBackend(page);
   await page.goto("/");
   await page.getByLabel("Email").fill("me@example.com");
@@ -257,7 +265,39 @@ test("swiping a recording left reveals Delete, which removes it", async ({ page 
   if (process.env.SHOT) await page.screenshot({ path: `${process.env.SHOT}/swiped.png` });
   await page.getByRole("button", { name: /^Delete / }).click();
   await expect(page.getByTestId("recent")).toHaveCount(0);
-  expect(mock.rows).toHaveLength(0);
+  // It is marked deleted, not erased.
+  expect(mock.rows).toHaveLength(1);
+  expect(mock.rows[0].deleted_at).toBeTruthy();
+
+  await page.getByRole("link", { name: "Settings" }).click();
+  await expect(page.getByTestId("account-email")).toHaveText("me@example.com");
+  await expect(page.getByTestId("trash-link")).toContainText("1 recording");
+  if (process.env.SHOT) await page.screenshot({ path: `${process.env.SHOT}/settings.png`, fullPage: true });
+  await page.getByTestId("trash-link").click();
+  await expect(page.getByTestId("trashed")).toHaveCount(1);
+  await page.getByRole("button", { name: "Restore" }).click();
+  await expect(page.getByTestId("trashed")).toHaveCount(0);
+  expect(mock.rows[0].deleted_at).toBeNull();
+
+  await page.getByTestId("record-tab").click();
+  await expect(page.getByTestId("recent")).toHaveCount(1);
+});
+
+test("the look is dark by default and can be switched to light", async ({ page }) => {
+  await mockBackend(page);
+  await page.goto("/settings");
+  await page.getByLabel("Email").fill("me@example.com");
+  await page.getByLabel("Password").fill("pw");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  const background = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  await expect(page.getByTestId("theme")).toBeVisible();
+  expect(await background()).toBe("rgb(11, 12, 14)");
+  await page.getByTestId("theme").getByRole("button", { name: "Light" }).click();
+  expect(await background()).toBe("rgb(243, 245, 249)");
+  // The choice is remembered on the next open.
+  await page.reload();
+  await expect(page.getByTestId("theme")).toBeVisible();
+  expect(await background()).toBe("rgb(243, 245, 249)");
 });
 
 test("phone check reports formats and builds the Shortcuts link", async ({ page }) => {

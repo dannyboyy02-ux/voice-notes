@@ -41,6 +41,8 @@ create table if not exists public.recordings (
   updated_at timestamptz not null default now(),
   fts tsvector generated always as (to_tsvector('english', coalesce(title, '') || ' ' || coalesce(summary, ''))) stored
 );
+-- Trash: a deleted recording is kept for 30 days so it can be restored.
+alter table public.recordings add column if not exists deleted_at timestamptz;
 create index if not exists recordings_user_started on public.recordings (user_id, started_at desc);
 create index if not exists recordings_status on public.recordings (status);
 create index if not exists recordings_fts on public.recordings using gin (fts);
@@ -236,6 +238,7 @@ language sql security definer set search_path = '' as $$
      select id from public.items
       where type = 'reminder' and state = 'active' and due_at <= now()
         and notified_at is null and apple_sent_at is null
+        and not exists (select 1 from public.recordings r where r.id = items.recording_id and r.deleted_at is not null)
       for update skip locked
       limit 20)
   returning i.*;
@@ -300,19 +303,19 @@ language sql stable security invoker set search_path = '' as $$
            ts_headline('english', coalesce(r.title, '') || '. ' || coalesce(r.summary, ''), query.tsq,
                        'MaxWords=24,MinWords=8,StartSel=[[,StopSel=]]'),
            ts_rank(r.fts, query.tsq) * 2
-      from public.recordings r, query where r.fts @@ query.tsq and not r.is_test
+      from public.recordings r, query where r.fts @@ query.tsq and not r.is_test and r.deleted_at is null
     union all
     select r.id, r.title, r.started_at, 'transcript'::text, u.start_ms,
            ts_headline('english', u.text, query.tsq, 'MaxWords=24,MinWords=8,StartSel=[[,StopSel=]]'),
            ts_rank(u.fts, query.tsq)
       from public.utterances u join public.recordings r on r.id = u.recording_id, query
-     where u.fts @@ query.tsq and not r.is_test
+     where u.fts @@ query.tsq and not r.is_test and r.deleted_at is null
     union all
     select r.id, r.title, r.started_at, i.type, i.at_ms,
            ts_headline('english', i.text, query.tsq, 'MaxWords=24,MinWords=8,StartSel=[[,StopSel=]]'),
            ts_rank(i.fts, query.tsq) * 1.5
       from public.items i join public.recordings r on r.id = i.recording_id, query
-     where i.fts @@ query.tsq and not i.is_test
+     where i.fts @@ query.tsq and not i.is_test and r.deleted_at is null
   ) hits (recording_id, title, started_at, kind, at_ms, snippet, rank)
   order by rank desc, started_at desc
   limit 50;
@@ -330,9 +333,11 @@ begin
   if cfg.app_url is null then return; end if;
   if exists (select 1 from public.items
               where type = 'reminder' and state = 'active' and due_at <= now()
-                and notified_at is null and apple_sent_at is null)
+                and notified_at is null and apple_sent_at is null
+                and not exists (select 1 from public.recordings r where r.id = items.recording_id and r.deleted_at is not null))
      or exists (select 1 from public.recordings
                  where status in ('uploaded', 'transcribing', 'transcribed', 'extracting'))
+     or exists (select 1 from public.recordings where deleted_at < now() - interval '30 days')
      or exists (select 1 from public.recordings
                  where status = 'ready' and storage_path is not null and audio_deleted_at is null
                    and ready_at < now() - interval '30 days')

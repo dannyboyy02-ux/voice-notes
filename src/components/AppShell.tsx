@@ -7,7 +7,7 @@ import { createContext, useCallback, useContext, useEffect, useState } from "rea
 import { checkPush, enablePush, type PushState } from "@/lib/client/push";
 import { api, getConfig, getSupabase } from "@/lib/client/supabase";
 
-type App = { db: SupabaseClient; userId: string; push: PushState; setPush: (p: PushState) => void; refreshOverdue: () => void };
+type App = { db: SupabaseClient; userId: string; email: string; trash: boolean; push: PushState; setPush: (p: PushState) => void; refreshOverdue: () => void };
 const Ctx = createContext<App | null>(null);
 export function useApp(): App {
   const app = useContext(Ctx);
@@ -20,7 +20,7 @@ type Gate =
   | { kind: "setup"; missing: string[] }
   | { kind: "login" }
   | { kind: "not-owner"; userId: string; configured: boolean }
-  | { kind: "ready"; userId: string; warning: string | null };
+  | { kind: "ready"; userId: string; email: string; trash: boolean; warning: string | null };
 
 const TABS = [
   { href: "/notes", label: "Notes" },
@@ -99,7 +99,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           : sync.data.databaseReady === false
             ? `The database setup script has not been run yet (${sync.data.databaseError ?? "unknown error"}).`
             : null;
-      setGate({ kind: "ready", userId: data.session.user.id, warning });
+      // Trash needs a column added by the newer database script; without it, deleting erases at once.
+      const probe = await client.from("recordings").select("deleted_at").limit(1);
+      if (!live) return;
+      setGate({ kind: "ready", userId: data.session.user.id, email: data.session.user.email ?? "", trash: !probe.error, warning });
       setPush(await checkPush());
     })();
     return () => { live = false; };
@@ -169,7 +172,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <Ctx.Provider value={{ db, userId: gate.userId, push, setPush, refreshOverdue }}>
+    <Ctx.Provider value={{ db, userId: gate.userId, email: gate.email, trash: gate.trash, push, setPush, refreshOverdue }}>
       <div className="page">
         {gate.warning && <div className="banner rec">{gate.warning}</div>}
         {overdue > 0 && pathname !== "/todos" && (
@@ -187,7 +190,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       </div>
       <nav className="tabs">
         {TABS.map((t) => {
-          const on = t.href === "/" ? pathname === "/" : pathname.startsWith(t.href);
+          const on = t.href === "/" ? pathname === "/" : pathname.startsWith(t.href) || (t.href === "/settings" && pathname.startsWith("/trash"));
           if (t.href === "/") {
             return (
               <Link key={t.href} href="/" className={`rec-tab ${on ? "on" : ""}`} aria-label="Record" data-testid="record-tab">

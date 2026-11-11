@@ -23,7 +23,7 @@ function Snippet({ text }: { text: string }) {
 }
 
 export default function NotesPage() {
-  const { db } = useApp();
+  const { db, trash } = useApp();
   const [recordings, setRecordings] = useState<Recording[] | null>(null);
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<Hit[] | null>(null);
@@ -31,11 +31,13 @@ export default function NotesPage() {
   useEffect(() => {
     let live = true;
     (async () => {
-      const { data } = await db.from("recordings").select("*").eq("is_test", false).order("started_at", { ascending: false }).limit(100);
+      let q = db.from("recordings").select("*").eq("is_test", false);
+      if (trash) q = q.is("deleted_at", null);
+      const { data } = await q.order("started_at", { ascending: false }).limit(100);
       if (live) setRecordings((data as Recording[]) ?? []);
     })();
     return () => { live = false; };
-  }, [db]);
+  }, [db, trash]);
 
   useEffect(() => {
     const q = query.trim();
@@ -76,7 +78,7 @@ export default function NotesPage() {
               key={r.id}
               label={r.title ?? "recording"}
               onDelete={async () => {
-                if (!(await deleteRecording(db, r))) setRecordings((list) => list?.filter((x) => x.id !== r.id) ?? null);
+                if (!(await deleteRecording(db, r, trash))) setRecordings((list) => list?.filter((x) => x.id !== r.id) ?? null);
               }}
             >
               <Link className="item list-link" href={`/notes/${r.id}`} data-testid="note" draggable={false}>

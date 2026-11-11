@@ -4,7 +4,9 @@ A personal iPhone home-screen web app. Record a thought or a meeting; a minute o
 
 ## How it works
 
-- **Deleting**: swipe a recording left on the Record or Notes screen and tap Delete. This removes the audio file, the transcript and that recording's items for good.
+- **Deleting and Trash**: swipe a recording left on the Record or Notes screen and tap Delete. It moves to Trash (Settings > Trash), where it can be restored for 30 days; after that the worker erases the audio, transcript and items for good. Its to-dos are hidden and its reminders do not alert while it is in Trash. Trash needs the `deleted_at` column from the current `supabase/setup.sql`; on a database without it the app says so and deleting erases at once.
+- **Look**: dark grey to black by default. Settings > Appearance switches to Light or follows the phone; the choice is kept on the phone.
+- **To-dos**: each item shows the recording it came from and that recording's date, and opens it at the moment it was said.
 - **Phone**: records in the browser, writes a chunk to IndexedDB every 5 seconds, and uploads straight to Supabase Storage in resumable 6 MB pieces. Audio stays on the phone until the server confirms the recording.
 - **Supabase**: login (email and password, sign-ups off), database with row-level security, a private `audio` bucket, and the scheduler. `pg_cron` runs every minute and uses `pg_net` to call `/api/tick` only when work is waiting.
 - **Vercel**: the Next.js app and the worker. Each tick claims one step at a time: `uploaded > transcribing > transcribed > extracting > ready`, or `failed` after three attempts, with a Retry button.
@@ -49,7 +51,7 @@ A personal iPhone home-screen web app. Record a thought or a meeting; a minute o
 ```bash
 npm run lint
 npm run typecheck
-npm test        # 62 unit tests, then 6 Playwright tests with a fake microphone against mocks
+npm test        # 62 unit tests, then 7 Playwright tests with a fake microphone against mocks
 npm run build
 ```
 
@@ -69,6 +71,8 @@ Not yet verified:
 - Swipe-to-delete on a real touchscreen (tested with a simulated drag).
 - Recordings with several speakers or longer than 10 minutes: the Opus path, the low-confidence rerun, the Review list, the 50 MB part roll-over.
 - The 30-day audio deletion, Retry after three failures, and "Redo with best model" end to end.
+
+Database version: Trash and the "last tick" fix both need the current `supabase/setup.sql` to have been run. The app works without it, with Trash switched off.
 
 Known issue: databases set up before pull request 3 do not record the "last tick" stamp, because Supabase rejects an `UPDATE` without `WHERE` from API roles. Nothing depends on it; re-running `supabase/setup.sql` fixes it.
 
