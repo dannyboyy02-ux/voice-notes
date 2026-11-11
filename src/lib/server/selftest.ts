@@ -1,7 +1,11 @@
 import "server-only";
 import { adminDb, AUDIO_BUCKET } from "./db";
 import { appUrl, missingEnv, need } from "./env";
+import { after } from "next/server";
+import { CHAT_MODEL } from "../models";
 import { deleteTranscript } from "./stt";
+import { runUntilIdle } from "./tick";
+import { buildContext, streamAnswer } from "./zeus";
 
 type Report = Record<string, unknown> & { timeline: { at: string; saw: string }[] };
 const now = () => new Date().toISOString();
@@ -91,8 +95,12 @@ export async function selftest(req: Request, action: string | null): Promise<Rec
       recording_started_at: startedAt, time_zone: "America/New_York",
       timeline: [{ at: startedAt, saw: "uploaded" }],
     };
+    // fast=1 uses the same fast path the phone triggers after an upload; without it, only the scheduler drives the run.
+    const fast = new URL(req.url).searchParams.get("fast") === "1";
+    report.driven_by = fast ? "fast path (as after a phone upload), with the scheduler as backup" : "the database scheduler only";
     await db.from("selftest_runs").update({ report }).eq("id", run.id);
-    return { ok: true, done: false, phase: "pipeline", next: "call /api/selftest again in about a minute", ...report };
+    if (fast) after(() => runUntilIdle(owner).then(() => undefined));
+    return { ok: true, done: false, phase: "pipeline", next: fast ? "call /api/selftest again in about 20 seconds" : "call /api/selftest again in about a minute", ...report };
   }
 
   if (last.done) return last.report as Record<string, unknown>;
@@ -139,6 +147,18 @@ export async function selftest(req: Request, action: string | null): Promise<Rec
     todo: todo ?? null, dated_reminder: dated ?? null, all_items: extracted,
   };
 
+  // Ask Zeus one question about the test recording, once, to prove the chat works against the live model.
+  if (!report.zeus) {
+    const question = "What do I need to do, and when?";
+    try {
+      const context = await buildContext(owner, rec.id, question);
+      const answer = await new Response(streamAnswer(context, [{ role: "user", content: question }])).text();
+      report.zeus = { model: CHAT_MODEL, question, answer: answer.trim() };
+    } catch (e) {
+      report.zeus = { model: CHAT_MODEL, question, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
   // Second half: leave a reminder that is already due and wait for the scheduler's tick to send it.
   let due = (items ?? []).find((i) => i.said === "selftest-due");
   if (!due) {
@@ -171,6 +191,9 @@ export async function selftest(req: Request, action: string | null): Promise<Rec
     // Only /api/tick marks reminders as notified, and it accepts only the secret held by the database scheduler.
     tick_sent_due_reminder: Boolean(due.notified_at),
     test_rows_removed: c.test_recordings_left === 0 && c.test_items_left === 0 && c.test_audio_files_left === 0,
+    zeus_answered: typeof (report.zeus as { answer?: string } | undefined)?.answer === "string"
+      && !/could not answer|declined/.test((report.zeus as { answer: string }).answer)
+      && (report.zeus as { answer: string }).answer.length > 20,
   };
   report.ok = Object.values(report.checks as Record<string, boolean>).every(Boolean);
   report.finished_at = now();

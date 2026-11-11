@@ -66,7 +66,7 @@ export default function RecordPage() {
   const busy = recent.some((r) => r.status !== "ready" && r.status !== "failed");
   useEffect(() => {
     if (!busy) return;
-    const t = setInterval(refresh, 5000);
+    const t = setInterval(refresh, 3000);
     return () => clearInterval(t);
   }, [busy, refresh]);
 

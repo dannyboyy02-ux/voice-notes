@@ -26,6 +26,7 @@ const TABS = [
   { href: "/", label: "Record" },
   { href: "/todos", label: "To-dos" },
   { href: "/notes", label: "Notes" },
+  { href: "/zeus", label: "Zeus" },
   { href: "/settings", label: "Settings" },
 ];
 

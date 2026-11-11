@@ -1,0 +1,43 @@
+import { describe, expect, it } from "vitest";
+import { formatRecording, searchTerms } from "./zeus-context";
+
+const rec = { id: "r1", title: "Call with Sam", summary: "Sam can start on the 16th.", started_at: "2026-11-10T19:05:00.000Z", time_zone: "America/New_York", duration_ms: 18 * 60000 };
+const items = [
+  { recording_id: "r1", type: "reminder", text: "Call the county", due_at: "2026-11-12T14:00:00.000Z", state: "active", said: "Thursday morning" },
+  { recording_id: "r1", type: "reminder", text: "Check in with Sam", due_at: null, state: "suggested", said: "sometime next week" },
+  { recording_id: "other", type: "todo", text: "Not mine", due_at: null, state: "active", said: null },
+];
+const lines = [
+  { recording_id: "r1", speaker: "B", start_ms: 417000, text: "Then I can start the 16th." },
+  { recording_id: "r1", speaker: "A", start_ms: 412000, text: "I'll send you the survey tonight." },
+  { recording_id: "other", speaker: "A", start_ms: 0, text: "Elsewhere." },
+];
+
+describe("formatRecording", () => {
+  const text = formatRecording(rec, items, lines, true);
+  it("states when it was recorded in the recorder's own time zone", () => {
+    expect(text).toContain("Recorded: Tue, Nov 10, 2026, 2:05 PM, 18 min");
+  });
+  it("lists only this recording's items, with due times in local time", () => {
+    expect(text).toContain("- [active] reminder: Call the county (due Thu, Nov 12, 2026, 9:00 AM)");
+    expect(text).toContain('- [suggested] reminder: Check in with Sam (said: "sometime next week", no date set)');
+    expect(text).not.toContain("Not mine");
+  });
+  it("puts this recording's lines in spoken order with speaker labels", () => {
+    expect(text.indexOf("[06:52] Speaker A")).toBeGreaterThan(0);
+    expect(text.indexOf("[06:52] Speaker A")).toBeLessThan(text.indexOf("[06:57] Speaker B"));
+    expect(text).not.toContain("Elsewhere");
+  });
+  it("labels partial transcripts as matches, not the whole conversation", () => {
+    expect(formatRecording(rec, items, lines, false)).toContain("Matching transcript lines:");
+  });
+});
+
+describe("searchTerms", () => {
+  it("keeps the meaningful words of a question", () => {
+    expect(searchTerms("What did Sam say about the dock permit?")).toBe("sam or dock or permit");
+  });
+  it("returns nothing for a question with no searchable words", () => {
+    expect(searchTerms("What did they say?")).toBe("");
+  });
+});

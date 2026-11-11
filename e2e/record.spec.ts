@@ -9,17 +9,22 @@ const CORS = {
   "access-control-expose-headers": "Location, Upload-Offset, Upload-Length, Tus-Resumable, Content-Range",
 };
 
-type Mock = { uploadedBytes: number; uploadLength: number; pieces: number; objectName: string; rows: Record<string, unknown>[]; uploadAuth: string };
+type Mock = { kicks: number; uploadedBytes: number; uploadLength: number; pieces: number; objectName: string; rows: Record<string, unknown>[]; uploadAuth: string };
 
 /** Stands in for Supabase (login, resumable storage, database) and this app's own sync route. */
 async function mockBackend(page: Page): Promise<Mock> {
-  const mock: Mock = { uploadedBytes: 0, uploadLength: 0, pieces: 0, objectName: "", rows: [], uploadAuth: "" };
+  const mock: Mock = { kicks: 0, uploadedBytes: 0, uploadLength: 0, pieces: 0, objectName: "", rows: [], uploadAuth: "" };
   const json = (route: Route, body: unknown, status = 200, headers: Record<string, string> = {}) =>
     route.fulfill({ status, headers: { ...CORS, "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
 
   await page.route("**/api/config", (route) =>
     json(route, { supabaseUrl: SUPABASE, supabaseAnonKey: "anon-key", vapidPublicKey: null, missing: [] }));
   await page.route("**/api/sync", (route) => json(route, { ok: true, userId: USER_ID, missing: [], databaseReady: true }));
+  await page.route("**/api/kick", (route) => { mock.kicks++; return json(route, { accepted: true }, 202); });
+  await page.route("**/api/zeus", (route) => {
+    const body = route.request().postDataJSON() as { recordingId: string | null; messages: { content: string }[] };
+    return route.fulfill({ status: 200, headers: { "content-type": "text/plain; charset=utf-8" }, body: `You asked: ${body.messages.at(-1)?.content} (scope: ${body.recordingId ?? "all"})` });
+  });
 
   await page.route(`${SUPABASE}/**`, async (route) => {
     const req = route.request();
@@ -127,6 +132,9 @@ test("records with a fake microphone and reaches uploaded", async ({ page }) => 
   expect(row.storage_path.startsWith(`${USER_ID}/${row.id}.`)).toBe(true);
   expect(mock.uploadAuth).toMatch(/^Bearer /);
 
+  // The phone tells the server at once, so processing does not wait for the scheduler's next minute.
+  expect(mock.kicks).toBe(1);
+
   // Only after the server confirmed the row is the audio removed from the phone.
   await expect(page.getByTestId("local-session")).toHaveCount(0);
   const left = await page.evaluate(
@@ -186,6 +194,26 @@ test("recovers a recording after the app is closed mid-recording", async ({ page
   expect(mock.rows).toHaveLength(1);
   expect(mock.uploadedBytes).toBeGreaterThan(100);
   expect(mock.uploadedBytes).toBe(mock.uploadLength);
+});
+
+test("Zeus answers a question and keeps the conversation on screen", async ({ page }) => {
+  await mockBackend(page);
+  await page.goto("/zeus");
+  await page.getByLabel("Email").fill("me@example.com");
+  await page.getByLabel("Password").fill("pw");
+  await page.getByRole("button", { name: "Sign in" }).click();
+
+  await expect(page.getByRole("heading", { name: "Zeus" })).toBeVisible();
+  await expect(page.getByTestId("zeus-scope")).toContainText("across your recordings");
+  await page.getByLabel("Ask Zeus").fill("What did Sam say about the dock?");
+  await page.getByRole("button", { name: "Ask" }).click();
+  await expect(page.getByTestId("turn-user")).toHaveText(/What did Sam say about the dock\?/);
+  await expect(page.getByTestId("turn-assistant")).toContainText("You asked: What did Sam say about the dock? (scope: all)");
+
+  await page.getByLabel("Ask Zeus").fill("And when?");
+  await page.getByRole("button", { name: "Ask" }).click();
+  await expect(page.getByTestId("turn-assistant")).toHaveCount(2);
+  await expect(page.getByTestId("turn-assistant").nth(1)).toContainText("You asked: And when?");
 });
 
 test("phone check reports formats and builds the Shortcuts link", async ({ page }) => {

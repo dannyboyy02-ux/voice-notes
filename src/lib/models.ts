@@ -1,6 +1,9 @@
 export type ModelMode = "auto" | "best" | "cheapest";
 export const BEST_MODEL = "claude-opus-5-5";
 export const CHEAP_MODEL = "claude-haiku-5-5";
+/** Zeus, the in-app chat, runs on Sonnet. */
+export const CHAT_MODEL = "claude-sonnet-5-5";
+export const ASSISTANT_NAME = "Zeus";
 export type ModelId = typeof BEST_MODEL | typeof CHEAP_MODEL;
 
 /** Auto: a short memo by one speaker goes to the cheap model, anything else to the best one. */

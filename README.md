@@ -7,6 +7,8 @@ A personal iPhone home-screen web app. Record a thought or a meeting; a minute o
 - **Phone**: records in the browser, writes a chunk to IndexedDB every 5 seconds, and uploads straight to Supabase Storage in resumable 6 MB pieces. Audio stays on the phone until the server confirms the recording.
 - **Supabase**: login (email and password, sign-ups off), database with row-level security, a private `audio` bucket, and the scheduler. `pg_cron` runs every minute and uses `pg_net` to call `/api/tick` only when work is waiting.
 - **Vercel**: the Next.js app and the worker. Each tick claims one step at a time: `uploaded > transcribing > transcribed > extracting > ready`, or `failed` after three attempts, with a Retry button.
+- **Fast start**: when an upload is confirmed the phone calls `/api/kick`, which runs the same worker passes every few seconds until the recording is ready. The once-a-minute scheduler stays as the safety net for retries, reminders and anything the fast path misses.
+- **Zeus**: an in-app chat (`/zeus`, Claude Sonnet 5.5, no tools) for reviewing recordings. From a note it reads that recording's full transcript; from the Zeus tab it reads the 40 most recent summaries and items plus transcript lines matching the question. Chats are not saved and their cost is not in the Settings estimate.
 - **AssemblyAI** transcribes with speaker labels from a short-lived signed link. **Claude** returns a fixed structure (no tools): Haiku 5.5 for a short single-speaker memo, Opus 5.5 otherwise, with an Opus rerun when the cheap pass reports low confidence.
 
 ## Where it runs
@@ -46,11 +48,11 @@ A personal iPhone home-screen web app. Record a thought or a meeting; a minute o
 ```bash
 npm run lint
 npm run typecheck
-npm test        # 47 unit tests, then 4 Playwright tests with a fake microphone against mocks
+npm test        # 53 unit tests, then 5 Playwright tests with a fake microphone against mocks
 npm run build
 ```
 
-- `/api/selftest?key=<SELFTEST_SECRET>&action=start` uploads a spoken sample and lets the real scheduler drive it; call it again without `action` about once a minute until `done` is true. It checks: uploaded to ready, a to-do, a dated reminder, a due reminder sent by the tick, and test rows removed.
+- `/api/selftest?key=<SELFTEST_SECRET>&action=start` uploads a spoken sample and lets the real scheduler drive it; call it again without `action` about once a minute until `done` is true. Add `&fast=1` to drive the run with the fast path the phone uses. It checks: uploaded to ready, a to-do, a dated reminder, a due reminder sent by the tick, a Zeus answer about the sample, and test rows removed.
 - If something is not set up, the same endpoint says what: missing variable names, or which Supabase project it is connected to and which tables, bucket or functions it cannot find.
 - `/phone-check` tests what the iPhone itself allows (formats, real bytes per second, joined-chunk playback, wake lock, interruption, the Shortcuts link).
 
