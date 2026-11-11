@@ -1,0 +1,230 @@
+import "server-only";
+import { buildItemRows } from "../items";
+import { llmCostUsd, pickModel, shouldEscalate, sttCostUsd, BEST_MODEL, type ModelId, type ModelMode } from "../models";
+import { onStepFailure, onStepSuccess, type WorkStep } from "../pipeline/steps";
+import { adminDb, AUDIO_BUCKET } from "./db";
+import { runExtraction, type ExtractOutput } from "./extract";
+import { sendPush } from "./push";
+import { getTranscript, submitTranscript } from "./stt";
+
+type Rec = {
+  id: string; user_id: string; status: string; attempts: number; started_at: string; time_zone: string;
+  duration_ms: number | null; storage_path: string | null; aai_transcript_id: string | null;
+  speakers: number | null; model_override: string | null; is_test: boolean; title: string | null;
+};
+
+export type TickReport = {
+  reminders_sent: { id: string; push: string }[];
+  swept: number;
+  polled: { id: string; result: string }[];
+  steps: { id: string; step: string; result: string }[];
+  audio_deleted: number;
+  errors: string[];
+};
+
+const SIGNED_URL_SECONDS = 3 * 3600;
+const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+async function fail(rec: Rec, step: WorkStep, error: string) {
+  const patch = onStepFailure(step, rec.attempts, error);
+  await adminDb().from("recordings").update(patch).eq("id", rec.id).eq("status", step);
+  return patch.status;
+}
+
+/** uploaded > transcribing: hand the speech service a short-lived link. Safe to repeat. */
+async function startTranscription(rec: Rec): Promise<string> {
+  const db = adminDb();
+  if (rec.aai_transcript_id) return "already submitted";
+  if (!rec.storage_path) throw new Error("The recording has no audio file.");
+  const signed = await db.storage.from(AUDIO_BUCKET).createSignedUrl(rec.storage_path, SIGNED_URL_SECONDS);
+  if (signed.error || !signed.data) throw new Error(`Could not sign the audio link: ${signed.error?.message}`);
+  const id = await submitTranscript(signed.data.signedUrl);
+  const { error } = await db.from("recordings").update({ aai_transcript_id: id, locked_until: null }).eq("id", rec.id).eq("status", "transcribing");
+  if (error) throw new Error(error.message);
+  return "submitted";
+}
+
+/** transcribing > transcribed: poll the job; when done, save the transcript. Safe to repeat. */
+async function pollTranscription(rec: Rec): Promise<string> {
+  const db = adminDb();
+  const state = await getTranscript(rec.aai_transcript_id!);
+  if (state.status === "waiting") {
+    await db.from("recordings").update({ locked_until: null }).eq("id", rec.id).eq("status", "transcribing");
+    return "waiting";
+  }
+  if (state.status === "error") {
+    // A new job is needed, so forget the old id and let the retry count decide.
+    await db.from("recordings").update({ aai_transcript_id: null }).eq("id", rec.id);
+    return `error > ${await fail(rec, "transcribing", state.error)}`;
+  }
+  await db.from("utterances").delete().eq("recording_id", rec.id);
+  if (state.utterances.length) {
+    const rows = state.utterances.map((u, idx) => ({
+      recording_id: rec.id, user_id: rec.user_id, idx, speaker: u.speaker, start_ms: u.start, end_ms: u.end, text: u.text,
+    }));
+    const { error } = await db.from("utterances").insert(rows);
+    if (error) throw new Error(error.message);
+  }
+  const durationMs = state.durationMs ?? rec.duration_ms ?? 0;
+  const { error } = await db.from("recordings").update({
+    ...onStepSuccess("transcribing"),
+    duration_ms: durationMs,
+    speakers: state.speakers,
+    stt_cost_usd: sttCostUsd(durationMs),
+  }).eq("id", rec.id).eq("status", "transcribing");
+  if (error) throw new Error(error.message);
+  return "transcribed";
+}
+
+/** transcribed > extracting > ready: ask Claude, save items, log cost. Safe to repeat. */
+async function extract(rec: Rec): Promise<string> {
+  const db = adminDb();
+  const [{ data: lines, error: e1 }, { data: settings }] = await Promise.all([
+    db.from("utterances").select("speaker, start_ms, text").eq("recording_id", rec.id).order("idx"),
+    db.from("settings").select("model_mode").eq("user_id", rec.user_id).maybeSingle(),
+  ]);
+  if (e1) throw new Error(e1.message);
+  const mode: ModelMode = rec.model_override === "best" ? "best" : ((settings?.model_mode as ModelMode) ?? "auto");
+  const minutes = (rec.duration_ms ?? 0) / 60000;
+  const speakers = rec.speakers ?? new Set((lines ?? []).map((l) => l.speaker)).size;
+  let model: ModelId = pickModel({ minutes, speakers }, mode);
+
+  const runs: { out: ExtractOutput; model: ModelId; reason: string }[] = [];
+  let out: ExtractOutput;
+  if (!lines?.length) {
+    out = {
+      result: { title: "Empty recording", summary: "No speech was found in this recording.", confidence: "high", items: [] },
+      modelUsed: "none", inputTokens: 0, outputTokens: 0,
+    };
+  } else {
+    const input = { lines, startedAt: rec.started_at, timeZone: rec.time_zone };
+    out = await runExtraction({ ...input, model });
+    runs.push({ out, model, reason: rec.model_override === "best" ? "redo with best model" : `mode ${mode}` });
+    if (shouldEscalate(model, mode, out.result)) {
+      model = BEST_MODEL;
+      out = await runExtraction({ ...input, model });
+      runs.push({ out, model, reason: "cheap pass reported low confidence" });
+    }
+  }
+
+  const cost = runs.reduce((n, r) => n + llmCostUsd(r.model, r.out.inputTokens, r.out.outputTokens), 0);
+  if (runs.length) {
+    await db.from("llm_runs").insert(runs.map((r) => ({
+      recording_id: rec.id, user_id: rec.user_id, model: r.out.modelUsed, reason: r.reason,
+      input_tokens: r.out.inputTokens, output_tokens: r.out.outputTokens,
+      cost_usd: llmCostUsd(r.model, r.out.inputTokens, r.out.outputTokens), confidence: r.out.result.confidence,
+    })));
+  }
+
+  // Replace only items the owner has not touched, so a repeat or a redo never loses their edits.
+  await db.from("items").delete().eq("recording_id", rec.id).in("state", ["suggested", "active"])
+    .is("notified_at", null).is("apple_sent_at", null);
+  const { data: kept } = await db.from("items").select("text").eq("recording_id", rec.id);
+  const keptText = new Set((kept ?? []).map((k) => k.text.toLowerCase()));
+  const rows = buildItemRows(out.result, rec).filter((r) => !keptText.has(r.text.toLowerCase()));
+  if (rows.length) {
+    const { error } = await db.from("items").insert(rows);
+    if (error) throw new Error(error.message);
+  }
+
+  const firstReady = !rec.title;
+  const { data: prev } = await db.from("recordings").select("llm_cost_usd, input_tokens, output_tokens, ready_at").eq("id", rec.id).single();
+  const { error } = await db.from("recordings").update({
+    ...onStepSuccess("extracting"),
+    title: out.result.title, summary: out.result.summary, confidence: out.result.confidence,
+    model_used: out.modelUsed, model_override: null,
+    input_tokens: (prev?.input_tokens ?? 0) + runs.reduce((n, r) => n + r.out.inputTokens, 0),
+    output_tokens: (prev?.output_tokens ?? 0) + runs.reduce((n, r) => n + r.out.outputTokens, 0),
+    llm_cost_usd: Number(prev?.llm_cost_usd ?? 0) + cost,
+    ready_at: prev?.ready_at ?? new Date().toISOString(),
+  }).eq("id", rec.id).eq("status", "extracting");
+  if (error) throw new Error(error.message);
+
+  if (firstReady && !rec.is_test) {
+    const n = rows.length;
+    await sendPush(rec.user_id, {
+      title: "Your recording is ready",
+      body: `${out.result.title}${n ? ` · ${n} item${n === 1 ? "" : "s"}` : ""}`,
+      url: `/notes/${rec.id}`, tag: `rec-${rec.id}`,
+    }).catch(() => {});
+  }
+  return `ready (${out.modelUsed}${runs.length > 1 ? ", escalated" : ""})`;
+}
+
+/**
+ * One pass of the worker. Called by the database scheduler each minute while work is waiting.
+ * Every part is claimed atomically in the database, so overlapping ticks never do a step twice.
+ */
+export async function runTick(budgetMs = 240_000): Promise<TickReport> {
+  const db = adminDb();
+  const started = Date.now();
+  const report: TickReport = { reminders_sent: [], swept: 0, polled: [], steps: [], audio_deleted: 0, errors: [] };
+
+  // 1. Due reminders first: they are time-sensitive and quick.
+  try {
+    const { data: due, error } = await db.rpc("claim_due_reminders");
+    if (error) throw new Error(error.message);
+    for (const item of due ?? []) {
+      let via = "in-app only";
+      try {
+        const r = await sendPush(item.user_id, { title: "Reminder", body: item.text, url: "/todos", tag: `item-${item.id}` });
+        via = r.subscriptions === 0 ? "in-app only (no phone subscribed)" : `push sent to ${r.sent} of ${r.subscriptions}`;
+        if (r.errors.length) via += `; ${r.errors[0]}`;
+      } catch (e) {
+        via = `in-app only (push failed: ${msg(e).slice(0, 120)})`;
+      }
+      await db.from("items").update({ notified_via: via }).eq("id", item.id);
+      report.reminders_sent.push({ id: item.id, push: via });
+    }
+  } catch (e) { report.errors.push(`reminders: ${msg(e)}`); }
+
+  // 2. Steps that crashed three times stop as failed.
+  try {
+    const { data, error } = await db.rpc("sweep_stuck");
+    if (error) throw new Error(error.message);
+    report.swept = data ?? 0;
+  } catch (e) { report.errors.push(`sweep: ${msg(e)}`); }
+
+  // 3. Poll transcriptions that are with the speech service.
+  try {
+    const { data: polling, error } = await db.rpc("claim_poll");
+    if (error) throw new Error(error.message);
+    for (const rec of (polling ?? []) as Rec[]) {
+      try { report.polled.push({ id: rec.id, result: await pollTranscription(rec) }); }
+      catch (e) { report.polled.push({ id: rec.id, result: `error: ${msg(e)}` }); }
+    }
+  } catch (e) { report.errors.push(`poll: ${msg(e)}`); }
+
+  // 4. Claim and run steps, one recording at a time, until none are left or time is short.
+  while (Date.now() - started < budgetMs && report.steps.length < 10) {
+    const { data, error } = await db.rpc("claim_recording");
+    if (error) { report.errors.push(`claim: ${error.message}`); break; }
+    const rec = (data as Rec[] | null)?.[0];
+    if (!rec) break;
+    const step = rec.status as WorkStep;
+    try {
+      const result = step === "transcribing" ? await startTranscription(rec) : await extract(rec);
+      report.steps.push({ id: rec.id, step, result });
+    } catch (e) {
+      const next = await fail(rec, step, msg(e));
+      report.steps.push({ id: rec.id, step, result: `attempt ${rec.attempts} failed > ${next}: ${msg(e).slice(0, 200)}` });
+      // Leave the retry to the next tick, a minute away, rather than burning all three attempts at once.
+      break;
+    }
+  }
+
+  // 5. Audio deletes itself 30 days after the transcript is ready. The transcript and items stay.
+  try {
+    const cutoff = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
+    const { data: old } = await db.from("recordings").select("id, storage_path").eq("status", "ready")
+      .not("storage_path", "is", null).is("audio_deleted_at", null).lt("ready_at", cutoff).limit(20);
+    for (const r of old ?? []) {
+      const { error } = await db.storage.from(AUDIO_BUCKET).remove([r.storage_path]);
+      if (error) { report.errors.push(`audio delete: ${error.message}`); continue; }
+      await db.from("recordings").update({ audio_deleted_at: new Date().toISOString(), storage_path: null }).eq("id", r.id);
+      report.audio_deleted++;
+    }
+  } catch (e) { report.errors.push(`audio cleanup: ${msg(e)}`); }
+
+  return report;
+}
