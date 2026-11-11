@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useApp } from "@/components/AppShell";
@@ -39,7 +40,7 @@ function Note() {
   const processing = !!rec && rec.status !== "ready" && rec.status !== "failed";
   useEffect(() => {
     if (!processing) return;
-    const t = setInterval(load, 5000);
+    const t = setInterval(load, 3000);
     return () => clearInterval(t);
   }, [processing, load]);
 
@@ -138,6 +139,7 @@ function Note() {
       )}
 
       <section className="card">
+        {lines.length > 0 && <Link className="btn" href={`/zeus?note=${id}`} data-testid="ask-zeus">Ask Zeus about this recording</Link>}
         {rec.storage_path && !audioUrl && <button className="btn secondary" onClick={play}>Play audio</button>}
         {audioUrl && <audio controls src={audioUrl} style={{ width: "100%" }} />}
         {rec.audio_deleted_at && <p className="small muted">The audio was deleted 30 days after processing. The transcript stays.</p>}

@@ -228,3 +228,22 @@ export async function runTick(budgetMs = 240_000): Promise<TickReport> {
 
   return report;
 }
+
+/**
+ * The fast path: runs worker passes a few seconds apart until nothing of this owner's is in flight.
+ * Used right after an upload so a short memo does not wait for the scheduler's next minute.
+ */
+export async function runUntilIdle(userId: string, limitMs = 90_000, passMs = 3000): Promise<number> {
+  const started = Date.now();
+  let passes = 0;
+  while (Date.now() - started < limitMs) {
+    const report = await runTick(60_000);
+    passes++;
+    if (report.errors.length) console.warn("fast path", JSON.stringify(report.errors));
+    const { count } = await adminDb().from("recordings").select("id", { count: "exact", head: true })
+      .eq("user_id", userId).in("status", ["uploaded", "transcribing", "transcribed", "extracting"]);
+    if (!count) break;
+    await new Promise((r) => setTimeout(r, passMs));
+  }
+  return passes;
+}

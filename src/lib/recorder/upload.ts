@@ -1,6 +1,6 @@
 "use client";
 import * as tus from "tus-js-client";
-import { accessToken, getConfig, getSupabase } from "../client/supabase";
+import { accessToken, api, getConfig, getSupabase } from "../client/supabase";
 import { extensionFor } from "./mime";
 import { deleteSession, getSession, joinChunks, patchSession, type LocalSession } from "./store";
 
@@ -59,6 +59,9 @@ export async function uploadSession(id: string, onProgress: (fraction: number) =
 
     // Confirmed on the server. Only now is it safe to drop the audio from the phone.
     await deleteSession(id);
+    // Tell the server now, so transcription starts at once instead of at the scheduler's next minute.
+    // If this call fails, the scheduler still picks the recording up.
+    void api("/api/kick").catch(() => {});
   } catch (err) {
     await patchSession(id, { state: "stopped", note: `Upload did not finish: ${(err as Error).message}` });
     throw err;
