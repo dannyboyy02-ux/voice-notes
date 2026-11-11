@@ -1,5 +1,7 @@
--- Voice Notes database setup. Safe to run more than once.
+-- Voice Notes database setup. Safe to run more than once; run it again to pick up later fixes.
 -- Run in the Supabase SQL editor of the project that belongs to this app.
+-- Paste this whole file (its last line starts "select id, email, created_at from auth.users")
+-- and run it with nothing highlighted. A complete run ends with a table of users.
 
 create extension if not exists pg_cron;
 create extension if not exists pg_net;
