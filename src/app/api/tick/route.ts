@@ -16,7 +16,8 @@ export async function POST(req: Request) {
   if (!secret || ok !== true) return Response.json({ error: "forbidden" }, { status: 403 });
 
   after(async () => {
-    await adminDb().rpc("note_tick", { p_source: "scheduler" });
+    const noted = await adminDb().rpc("note_tick", { p_source: "scheduler" });
+    if (noted.error) console.warn("note_tick failed:", noted.error.message);
     const report = await runTick();
     console.log("tick", JSON.stringify(report));
   });
