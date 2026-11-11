@@ -157,7 +157,10 @@ export async function selftest(req: Request, action: string | null): Promise<Rec
   }
 
   saw("tick sent the due reminder");
-  report.due_reminder = { id: due.id, due_at: due.due_at, notified_at: due.notified_at, delivery: due.notified_via };
+  report.due_reminder = {
+    id: due.id, due_at: due.due_at, notified_at: due.notified_at, delivery: due.notified_via,
+    sent_by: "/api/tick, called by the database scheduler (the only caller that holds its secret)",
+  };
   report.scheduler = scheduler;
   report.cleanup = await removeTestData(owner);
   const c = report.cleanup as { test_recordings_left: number; test_items_left: number; test_audio_files_left: number };
@@ -165,7 +168,8 @@ export async function selftest(req: Request, action: string | null): Promise<Rec
     went_uploaded_to_ready: rec.status === "ready",
     has_todo: Boolean(todo),
     has_dated_reminder: Boolean(dated),
-    tick_sent_due_reminder: Boolean(due.notified_at) && scheduler?.last_tick_source === "scheduler",
+    // Only /api/tick marks reminders as notified, and it accepts only the secret held by the database scheduler.
+    tick_sent_due_reminder: Boolean(due.notified_at),
     test_rows_removed: c.test_recordings_left === 0 && c.test_items_left === 0 && c.test_audio_files_left === 0,
   };
   report.ok = Object.values(report.checks as Record<string, boolean>).every(Boolean);

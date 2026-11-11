@@ -251,7 +251,7 @@ $$;
 
 create or replace function public.note_tick(p_source text) returns void
 language sql security definer set search_path = '' as $$
-  update private.app_config set last_tick_at = now(), last_tick_source = p_source;
+  update private.app_config set last_tick_at = now(), last_tick_source = p_source where id;
 $$;
 
 create or replace function public.scheduler_state() returns jsonb
@@ -324,7 +324,7 @@ create or replace function private.tick() returns void
 language plpgsql security definer set search_path = '' as $$
 declare cfg private.app_config;
 begin
-  update private.app_config set scheduler_last_run_at = now() returning * into cfg;
+  update private.app_config set scheduler_last_run_at = now() where id returning * into cfg;
   if cfg.app_url is null then return; end if;
   if exists (select 1 from public.items
               where type = 'reminder' and state = 'active' and due_at <= now()
