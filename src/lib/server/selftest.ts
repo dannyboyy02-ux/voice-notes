@@ -39,10 +39,24 @@ export async function selftest(req: Request, action: string | null): Promise<Rec
 
   const probe = await db.rpc("scheduler_state");
   if (probe.error) {
+    // Say which project the app is talking to and which pieces it can see, so a wrong project or a half-run script is obvious.
+    const tables: Record<string, string> = {};
+    for (const t of ["recordings", "utterances", "items", "push_subscriptions", "settings", "llm_runs", "selftest_runs"]) {
+      const r = await db.from(t).select("*", { count: "exact", head: true });
+      tables[t] = r.error ? `missing or unreadable: ${r.error.message || r.error.code || r.status}` : "present";
+    }
+    const bucket = await db.storage.getBucket(AUDIO_BUCKET);
+    const users = await db.auth.admin.getUserById(owner);
+    let host = "unreadable";
+    try { host = new URL(need("SUPABASE_URL")).host; } catch { host = "SUPABASE_URL is not a valid URL"; }
     return {
       ok: false, done: false,
       blocked: "the database is not set up: run supabase/setup.sql in the Supabase SQL editor",
       database_error: probe.error.message,
+      connected_to: host,
+      tables,
+      audio_bucket: bucket.error ? `missing: ${bucket.error.message}` : "present",
+      owner_user_found: users.error ? `no: ${users.error.message}` : Boolean(users.data.user),
     };
   }
   const user = await db.auth.admin.getUserById(owner);

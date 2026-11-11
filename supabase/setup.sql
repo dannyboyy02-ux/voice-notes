@@ -345,6 +345,9 @@ end $$;
 
 select cron.schedule('voice-notes-tick', '* * * * *', 'select private.tick()');
 
+-- Tell the API layer to pick up the new tables and functions straight away.
+notify pgrst, 'reload schema';
+
 -- ---------------------------------------------------------------- result
 -- After you create your login (Authentication > Users > Add user), the id column
 -- below is the value for the OWNER_USER_ID environment variable in Vercel.
