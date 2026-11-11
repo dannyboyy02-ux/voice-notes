@@ -14,7 +14,7 @@ import { uploadSession } from "@/lib/recorder/upload";
 type Recent = { id: string; status: Status; title: string | null; summary: string | null; started_at: string; storage_path: string | null };
 
 export default function RecordPage() {
-  const { db, userId } = useApp();
+  const { db, userId, trash } = useApp();
   const recorder = useRef<Recorder | null>(null);
   const [view, setView] = useState<RecorderView | null>(null);
   const [now, setNow] = useState(0);
@@ -26,10 +26,11 @@ export default function RecordPage() {
 
   const refresh = useCallback(async () => {
     setLocal(await listSessions().catch(() => []));
-    const { data } = await db.from("recordings").select("id, status, title, summary, started_at, storage_path").eq("is_test", false)
-      .order("started_at", { ascending: false }).limit(10);
+    let q = db.from("recordings").select("id, status, title, summary, started_at, storage_path").eq("is_test", false);
+    if (trash) q = q.is("deleted_at", null);
+    const { data } = await q.order("started_at", { ascending: false }).limit(10);
     setRecent((data as Recent[]) ?? []);
-  }, [db]);
+  }, [db, trash]);
 
   const upload = useCallback(async (id: string) => {
     if (uploading.current.has(id)) return;
@@ -159,7 +160,7 @@ export default function RecordPage() {
 
       {recent.length > 0 && (
         <section className="card">
-          <div className="spread"><span className="label">Latest</span><span className="small muted">Swipe left to delete</span></div>
+          <div className="spread"><span className="label">Latest</span><span className="small muted">{trash ? "Swipe left to move to Trash" : "Swipe left to delete"}</span></div>
           {recent.map((r) => {
             const fallback = new Date(r.started_at).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" });
             return (
@@ -167,7 +168,7 @@ export default function RecordPage() {
                 key={r.id}
                 label={r.title ?? fallback}
                 onDelete={async () => {
-                  const problem = await deleteRecording(db, r);
+                  const problem = await deleteRecording(db, r, trash);
                   if (problem) setError(`Could not delete: ${problem}`);
                   await refresh();
                 }}

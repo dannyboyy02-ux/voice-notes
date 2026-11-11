@@ -14,6 +14,8 @@ export type Item = {
   due_local: string | null; said: string | null; quote: string | null; at_ms: number | null;
   state: "suggested" | "active" | "done" | "dismissed"; needs_review: boolean; notified_at: string | null;
   apple_sent_at: string | null; created_at: string;
+  /** The recording the item came from, when it has one. */
+  recording?: { title: string | null; started_at: string; deleted_at?: string | null } | null;
 };
 export type Settings = { model_mode: ModelMode; apple_reminders: boolean };
 export const ITEM_COLUMNS = "id, recording_id, type, text, due_at, due_local, said, quote, at_ms, state, needs_review, notified_at, apple_sent_at, created_at";

@@ -10,6 +10,8 @@ export default function SwipeToDelete({ children, onDelete, label }: { children:
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
   const drag = useRef<{ x: number; y: number; base: number; moved: boolean; locked: boolean } | null>(null);
+  // Letting go of a swipe also produces a click on the row. That click must be swallowed, not treated as a tap.
+  const justSwiped = useRef(false);
 
   const down = (e: React.PointerEvent) => { drag.current = { x: e.clientX, y: e.clientY, base: offset, moved: false, locked: false }; };
   const move = (e: React.PointerEvent) => {
@@ -31,7 +33,11 @@ export default function SwipeToDelete({ children, onDelete, label }: { children:
     const d = drag.current;
     drag.current = null;
     setDragging(false);
-    if (d?.moved) setOffset((o) => (o < -OPEN / 2 ? -OPEN : 0));
+    if (d?.moved) {
+      justSwiped.current = true;
+      setTimeout(() => { justSwiped.current = false; }, 350);
+      setOffset((o) => (o < -OPEN / 2 ? -OPEN : 0));
+    }
   };
 
   return (
@@ -54,6 +60,7 @@ export default function SwipeToDelete({ children, onDelete, label }: { children:
         onPointerCancel={up}
         // A swipe must not also open the row's link; a tap on an open row closes it.
         onClickCapture={(e) => {
+          if (justSwiped.current) { justSwiped.current = false; e.preventDefault(); e.stopPropagation(); return; }
           if (offset !== 0) { e.preventDefault(); e.stopPropagation(); setOffset(0); }
         }}
       >

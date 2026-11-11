@@ -6,6 +6,7 @@ import { ASSISTANT_NAME, CHAT_MODEL } from "../models";
 import { formatLooseItems, formatRecording, searchTerms, type CtxItem, type CtxLine, type CtxRecording } from "../zeus-context";
 import { TOOL_INPUTS, ZEUS_TOOLS, type ToolName } from "../zeus-tools";
 import { adminDb } from "./db";
+import { hasTrash } from "./trash";
 
 export type ChatTurn = { role: "user" | "assistant"; content: string };
 
@@ -38,8 +39,11 @@ export async function buildContext(userId: string, recordingId: string | null, q
   }
 
   const terms = searchTerms(question);
+  let recent = db.from("recordings").select(COLS_REC).eq("user_id", userId).eq("is_test", false).eq("status", "ready");
+  // Recordings in Trash are not shown to Zeus.
+  if (await hasTrash()) recent = recent.is("deleted_at", null);
   const [{ data: recs }, { data: items }, hits] = await Promise.all([
-    db.from("recordings").select(COLS_REC).eq("user_id", userId).eq("is_test", false).eq("status", "ready").order("started_at", { ascending: false }).limit(40),
+    recent.order("started_at", { ascending: false }).limit(40),
     db.from("items").select(COLS_ITEM).eq("user_id", userId).eq("is_test", false).neq("state", "dismissed").order("created_at", { ascending: false }).limit(300),
     terms
       ? db.from("utterances").select("recording_id, speaker, start_ms, text").eq("user_id", userId).textSearch("fts", terms, { type: "websearch", config: "english" }).limit(60)

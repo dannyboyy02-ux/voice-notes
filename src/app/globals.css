@@ -1,14 +1,22 @@
+/* Dark grey to black is the default look. Settings can switch to Light or follow the phone. */
 :root {
+  --bg: #0b0c0e; --surface: #17191c; --surface-2: #23262b; --ink: #f2f3f5; --muted: #9a9fa8;
+  --line: #2b2f35; --accent: #6fb4f3; --accent-soft: #162a3d; --rec: #ff6b61; --rec-soft: #3a1a18;
+  --warn: #f0b556; --warn-soft: #35270d; --ok: #5fd19a; --ok-soft: #11301f; --on-accent: #0b0c0e;
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
   --bg: #f3f5f9; --surface: #ffffff; --surface-2: #e9edf3; --ink: #16202c; --muted: #55637a;
   --line: #d3dae5; --accent: #0f5fa8; --accent-soft: #dbe8f6; --rec: #c2322b; --rec-soft: #fae2e0;
-  --warn: #8f5600; --warn-soft: #fbedd1; --ok: #1b7449; --ok-soft: #daf0e4;
+  --warn: #8f5600; --warn-soft: #fbedd1; --ok: #1b7449; --ok-soft: #daf0e4; --on-accent: #ffffff;
+  color-scheme: light;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0e131a; --surface: #161d27; --surface-2: #1e2734; --ink: #e6ebf2; --muted: #9aa8bb;
-    --line: #293444; --accent: #6fb4f3; --accent-soft: #152f49; --rec: #ff6f66; --rec-soft: #3b1b1a;
-    --warn: #f0b556; --warn-soft: #382a0f; --ok: #61d19c; --ok-soft: #12301f;
-    color-scheme: dark;
+@media (prefers-color-scheme: light) {
+  :root[data-theme="auto"] {
+    --bg: #f3f5f9; --surface: #ffffff; --surface-2: #e9edf3; --ink: #16202c; --muted: #55637a;
+  --line: #d3dae5; --accent: #0f5fa8; --accent-soft: #dbe8f6; --rec: #c2322b; --rec-soft: #fae2e0;
+  --warn: #8f5600; --warn-soft: #fbedd1; --ok: #1b7449; --ok-soft: #daf0e4; --on-accent: #ffffff;
+  color-scheme: light;
   }
 }
 * { box-sizing: border-box; }
@@ -35,7 +43,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .label { font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
 .btn {
   appearance: none; border: 0; border-radius: 10px; padding: 10px 14px; min-height: 44px;
-  background: var(--accent); color: var(--bg); font-weight: 600; cursor: pointer; text-decoration: none;
+  background: var(--accent); color: var(--on-accent); font-weight: 600; cursor: pointer; text-decoration: none;
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
 }
 .btn.secondary { background: var(--surface-2); color: var(--ink); }
@@ -69,7 +77,7 @@ pre.log { margin: 0; background: var(--surface-2); border-radius: 10px; padding:
 .item input[type="checkbox"] { width: 22px; height: 22px; margin-top: 2px; flex: none; }
 .seg { display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 .seg button { flex: 1; border: 0; background: transparent; padding: 8px 10px; min-height: 40px; cursor: pointer; }
-.seg button.on { background: var(--accent); color: var(--bg); font-weight: 600; }
+.seg button.on { background: var(--accent); color: var(--on-accent); font-weight: 600; }
 .spk { font-weight: 600; color: var(--accent); }
 .list-link { display: block; color: inherit; text-decoration: none; }
 mark { background: var(--warn-soft); color: inherit; border-radius: 3px; }
@@ -78,7 +86,18 @@ mark { background: var(--warn-soft); color: inherit; border-radius: 3px; }
 .swipe-front { position: relative; background: var(--surface); touch-action: pan-y; user-select: none; -webkit-user-select: none; }
 .swipe-front .item { border-bottom: 0; }
 .swipe-delete { position: absolute; top: 0; right: 0; bottom: 0; width: 92px; border: 0; background: var(--rec); color: #fff; font-weight: 600; cursor: pointer; }
-.tabs a.rec-tab { flex: none; width: 58px; height: 58px; min-height: 58px; margin-top: -22px; border-radius: 50%; background: var(--accent); color: var(--bg); display: grid; place-items: center; padding: 0; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25); }
+.tabs a.rec-tab { flex: none; width: 58px; height: 58px; min-height: 58px; margin-top: -22px; border-radius: 50%; background: var(--accent); color: var(--on-accent); display: grid; place-items: center; padding: 0; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25); }
 .tabs a.rec-tab.on { background: var(--rec); color: #fff; }
 .tabs { align-items: center; }
 .two-line { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.group { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.group > .line { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 13px 14px; border-bottom: 1px solid var(--line); min-height: 50px; color: inherit; text-decoration: none; }
+.group > .line:last-child { border-bottom: 0; }
+.group > .note { padding: 0 14px 12px; }
+.group-title { font-size: 0.85rem; color: var(--muted); padding: 4px 4px 0; }
+.avatar { width: 64px; height: 64px; border-radius: 50%; background: var(--accent); color: var(--on-accent); display: grid; place-items: center; font-size: 1.6rem; font-weight: 600; margin: 0 auto; }
+.meter { height: 4px; border-radius: 2px; background: var(--surface-2); overflow: hidden; }
+.meter > i { display: block; height: 100%; background: var(--accent); }
+.source { display: block; margin-top: 4px; color: var(--muted); font-size: 0.85rem; text-decoration: none; }
+.group .seg button { padding: 8px 9px; font-size: 0.9rem; white-space: nowrap; }
+.group > .line > span:first-child { flex: 1 1 auto; min-width: 0; }
