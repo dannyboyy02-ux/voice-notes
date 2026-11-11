@@ -16,7 +16,7 @@ A personal iPhone home-screen web app. Record a thought or a meeting; a minute o
 
 - **App:** https://voice-notes-beige.vercel.app (Vercel project `voice-notes`, team `daniel-priests-projects`).
 - **Database:** Supabase project `hhcrfdmwtbjzqewzvuyz`.
-- **Deploys are manual.** The Vercel project is not linked to this repository, so merging to `main` does not deploy on its own. Either connect it (Vercel project > Settings > Git > Connect Git Repository) or trigger a production deployment of `main` after each merge.
+- **Deploys are automatic.** The Vercel project is linked to this repository: merging to `main` deploys to production, and pull requests get a preview build (previews are behind Vercel login).
 - Environment variable changes only take effect on the next deployment.
 
 ## Setup
