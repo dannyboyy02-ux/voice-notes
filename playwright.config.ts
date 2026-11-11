@@ -12,6 +12,7 @@ export default defineConfig({
     baseURL: `http://localhost:${PORT}`,
     trace: "off",
     permissions: ["microphone"],
+    viewport: { width: 390, height: 844 },
     launchOptions: {
       // A generated tone stands in for the microphone, and the permission prompt is accepted.
       args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"],

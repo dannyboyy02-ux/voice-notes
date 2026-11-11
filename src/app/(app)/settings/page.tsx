@@ -132,7 +132,7 @@ export default function SettingsPage() {
       <section className="card">
         <div className="label">Privacy</div>
         <p className="small muted">
-          Audio is sent to AssemblyAI to be transcribed, and the transcript is sent to the Claude API to find the summary and items. When you ask Zeus a question, the relevant transcripts, summaries and items are sent to the Claude API too (Claude Sonnet 5.5). Zeus conversations are not saved. Audio is deleted from storage 30 days after processing; transcripts and items stay until you delete the recording. Recording other people can require their consent where you are.
+          Audio is sent to AssemblyAI to be transcribed, and the transcript is sent to the Claude API to find the summary and items. When you ask Zeus a question, the relevant transcripts, summaries and items are sent to the Claude API too (Claude Sonnet 5.5). Zeus can also add, change or remove your to-dos and reminders when you ask it to. Zeus conversations are saved on this phone only. Audio is deleted from storage 30 days after processing; transcripts and items stay until you delete the recording. Recording other people can require their consent where you are.
         </p>
       </section>
 

@@ -152,7 +152,10 @@ export async function selftest(req: Request, action: string | null): Promise<Rec
     const question = "What do I need to do, and when?";
     try {
       const context = await buildContext(owner, rec.id, question);
-      const answer = await new Response(streamAnswer(context, [{ role: "user", content: question }])).text();
+      // Read-only here: the self-test must not let the model change anything.
+      const answer = await new Response(
+        streamAnswer(context, [{ role: "user", content: question }], { userId: owner, timeZone: "America/New_York", recordingId: rec.id, allowChanges: false }),
+      ).text();
       report.zeus = { model: CHAT_MODEL, question, answer: answer.trim() };
     } catch (e) {
       report.zeus = { model: CHAT_MODEL, question, error: e instanceof Error ? e.message : String(e) };

@@ -70,6 +70,11 @@ async function mockBackend(page: Page): Promise<Mock> {
         }
         return json(route, [], 201);
       }
+      if (req.method() === "DELETE") {
+        const gone = url.searchParams.get("id")?.replace("eq.", "");
+        mock.rows = mock.rows.filter((r) => r.id !== gone);
+        return json(route, [], 200);
+      }
       const wantsObject = (req.headers()["accept"] ?? "").includes("vnd.pgrst.object");
       const id = url.searchParams.get("id")?.replace("eq.", "");
       const rows = id ? mock.rows.filter((r) => r.id === id) : mock.rows;
@@ -203,7 +208,7 @@ test("Zeus answers a question and keeps the conversation on screen", async ({ pa
   await page.getByLabel("Password").fill("pw");
   await page.getByRole("button", { name: "Sign in" }).click();
 
-  await expect(page.getByRole("heading", { name: "Zeus" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Ask Zeus" })).toBeVisible();
   await expect(page.getByTestId("zeus-scope")).toContainText("across your recordings");
   await page.getByLabel("Ask Zeus").fill("What did Sam say about the dock?");
   await page.getByRole("button", { name: "Ask" }).click();
@@ -214,6 +219,45 @@ test("Zeus answers a question and keeps the conversation on screen", async ({ pa
   await page.getByRole("button", { name: "Ask" }).click();
   await expect(page.getByTestId("turn-assistant")).toHaveCount(2);
   await expect(page.getByTestId("turn-assistant").nth(1)).toContainText("You asked: And when?");
+
+  if (process.env.SHOT) await page.screenshot({ path: `${process.env.SHOT}/zeus.png` });
+  // The chat is kept on the phone and can be reopened from History.
+  await page.getByRole("button", { name: "New chat" }).click();
+  await expect(page.getByTestId("turn-user")).toHaveCount(0);
+  await page.getByRole("button", { name: "History" }).click();
+  await expect(page.getByTestId("saved-chat")).toHaveCount(1);
+  await expect(page.getByTestId("saved-chat")).toContainText("What did Sam say about the dock?");
+  await page.getByTestId("saved-chat").click();
+  await expect(page.getByTestId("turn-assistant")).toHaveCount(2);
+});
+
+test("swiping a recording left reveals Delete, which removes it", async ({ page }) => {
+  const mock = await mockBackend(page);
+  await page.goto("/");
+  await page.getByLabel("Email").fill("me@example.com");
+  await page.getByLabel("Password").fill("pw");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  const button = page.getByTestId("record-button");
+  await button.click();
+  await expect(page.getByTestId("rec-stats")).toContainText("left in this file", { timeout: 15_000 });
+  await button.click();
+  await expect(page.getByTestId("recent")).toHaveCount(1, { timeout: 20_000 });
+  expect(mock.rows).toHaveLength(1);
+
+  if (process.env.SHOT) await page.screenshot({ path: `${process.env.SHOT}/record.png` });
+  const row = page.getByTestId("recent");
+  const box = (await row.boundingBox())!;
+  await page.mouse.move(box.x + box.width - 40, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width - 200, box.y + box.height / 2, { steps: 8 });
+  await page.mouse.up();
+  // The swipe itself must not open the note.
+  await expect(page).toHaveURL(/\/$/);
+
+  if (process.env.SHOT) await page.screenshot({ path: `${process.env.SHOT}/swiped.png` });
+  await page.getByRole("button", { name: /^Delete / }).click();
+  await expect(page.getByTestId("recent")).toHaveCount(0);
+  expect(mock.rows).toHaveLength(0);
 });
 
 test("phone check reports formats and builds the Shortcuts link", async ({ page }) => {

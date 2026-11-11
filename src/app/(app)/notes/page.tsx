@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useApp } from "@/components/AppShell";
+import SwipeToDelete from "@/components/SwipeToDelete";
+import { deleteRecording } from "@/lib/client/recordings";
 import { duration, stamp } from "@/lib/format";
 import { STATUS_LABEL } from "@/lib/pipeline/steps";
 import type { Recording } from "@/lib/types";
@@ -70,16 +72,25 @@ export default function NotesPage() {
       ) : (
         <section className="card">
           {recordings.map((r) => (
-            <Link key={r.id} className="item list-link" href={`/notes/${r.id}`} data-testid="note">
-              <div style={{ flex: 1 }}>
-                <div>{r.title ?? "Recording"}{r.part > 1 ? ` (part ${r.part})` : ""}</div>
-                <div className="small muted">
-                  {new Date(r.started_at).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
-                  {r.duration_ms ? ` · ${duration(r.duration_ms / 1000)}` : ""}
+            <SwipeToDelete
+              key={r.id}
+              label={r.title ?? "recording"}
+              onDelete={async () => {
+                if (!(await deleteRecording(db, r))) setRecordings((list) => list?.filter((x) => x.id !== r.id) ?? null);
+              }}
+            >
+              <Link className="item list-link" href={`/notes/${r.id}`} data-testid="note" draggable={false}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div>{r.title ?? "Recording"}{r.part > 1 ? ` (part ${r.part})` : ""}</div>
+                  <div className="small muted">
+                    {new Date(r.started_at).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
+                    {r.duration_ms ? ` · ${duration(r.duration_ms / 1000)}` : ""}
+                  </div>
+                  {r.summary && <div className="small muted two-line">{r.summary}</div>}
                 </div>
-              </div>
-              {r.status !== "ready" && <span className={`pill ${r.status === "failed" ? "rec" : ""}`}>{STATUS_LABEL[r.status]}</span>}
-            </Link>
+                {r.status !== "ready" && <span className={`pill ${r.status === "failed" ? "rec" : ""}`}>{STATUS_LABEL[r.status]}</span>}
+              </Link>
+            </SwipeToDelete>
           ))}
         </section>
       )}

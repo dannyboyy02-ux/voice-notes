@@ -5,7 +5,8 @@ export const metadata: Metadata = {
   title: "Voice Notes",
   description: "Record, transcribe and turn talk into to-dos and reminders.",
   appleWebApp: { capable: true, title: "Voice Notes", statusBarStyle: "default" },
-  icons: { icon: "/icons/icon-192.png", apple: "/icons/apple-touch-icon.png" },
+  // The ?v= changes whenever the artwork does, so phones fetch the new icon instead of a cached one.
+  icons: { icon: "/icons/icon-192.png?v=2", apple: "/icons/apple-touch-icon.png?v=2" },
 };
 
 export const viewport: Viewport = {
