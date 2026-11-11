@@ -3,13 +3,15 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useApp } from "@/components/AppShell";
+import SwipeToDelete from "@/components/SwipeToDelete";
+import { deleteRecording } from "@/lib/client/recordings";
 import { clock, duration, megabytes } from "@/lib/format";
 import { STATUS_LABEL, type Status } from "@/lib/pipeline/steps";
 import { Recorder, type RecorderView } from "@/lib/recorder/recorder";
 import { deleteSession, listSessions, patchSession, type LocalSession } from "@/lib/recorder/store";
 import { uploadSession } from "@/lib/recorder/upload";
 
-type Recent = { id: string; status: Status; title: string | null; started_at: string };
+type Recent = { id: string; status: Status; title: string | null; summary: string | null; started_at: string; storage_path: string | null };
 
 export default function RecordPage() {
   const { db, userId } = useApp();
@@ -24,8 +26,8 @@ export default function RecordPage() {
 
   const refresh = useCallback(async () => {
     setLocal(await listSessions().catch(() => []));
-    const { data } = await db.from("recordings").select("id, status, title, started_at").eq("is_test", false)
-      .order("started_at", { ascending: false }).limit(3);
+    const { data } = await db.from("recordings").select("id, status, title, summary, started_at, storage_path").eq("is_test", false)
+      .order("started_at", { ascending: false }).limit(10);
     setRecent((data as Recent[]) ?? []);
   }, [db]);
 
@@ -157,15 +159,30 @@ export default function RecordPage() {
 
       {recent.length > 0 && (
         <section className="card">
-          <div className="label">Latest</div>
-          {recent.map((r) => (
-            <Link key={r.id} href={`/notes/${r.id}`} className="item list-link" data-testid="recent">
-              <div style={{ flex: 1 }}>
-                <div>{r.title ?? new Date(r.started_at).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })}</div>
-              </div>
-              <span className={`pill ${r.status === "ready" ? "ok" : r.status === "failed" ? "rec" : ""}`} data-testid="upload-status">{STATUS_LABEL[r.status]}</span>
-            </Link>
-          ))}
+          <div className="spread"><span className="label">Latest</span><span className="small muted">Swipe left to delete</span></div>
+          {recent.map((r) => {
+            const fallback = new Date(r.started_at).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" });
+            return (
+              <SwipeToDelete
+                key={r.id}
+                label={r.title ?? fallback}
+                onDelete={async () => {
+                  const problem = await deleteRecording(db, r);
+                  if (problem) setError(`Could not delete: ${problem}`);
+                  await refresh();
+                }}
+              >
+                <Link href={`/notes/${r.id}`} className="item list-link" data-testid="recent" draggable={false}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div>{r.title ?? fallback}</div>
+                    {r.summary && <div className="small muted two-line">{r.summary}</div>}
+                    {r.title && <div className="small muted">{fallback}</div>}
+                  </div>
+                  <span className={`pill ${r.status === "ready" ? "ok" : r.status === "failed" ? "rec" : ""}`} data-testid="upload-status">{STATUS_LABEL[r.status]}</span>
+                </Link>
+              </SwipeToDelete>
+            );
+          })}
         </section>
       )}
     </>

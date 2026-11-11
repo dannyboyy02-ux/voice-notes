@@ -5,14 +5,14 @@ import { buildContext, streamAnswer, type ChatTurn } from "@/lib/server/zeus";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
-/** Chat with Zeus about one recording or across all of them. Owner only. */
+/** Chat with Zeus about one recording or across all of them. Zeus may also change the owner's to-dos. Owner only. */
 export async function POST(req: Request) {
   const owner = await requireOwner(req);
   if (owner instanceof Response) return owner;
   const missing = missingEnv(["ANTHROPIC_API_KEY"]);
   if (missing.length) return Response.json({ error: "server_not_configured", missing }, { status: 503 });
 
-  const body = (await req.json().catch(() => null)) as { recordingId?: string | null; messages?: ChatTurn[] } | null;
+  const body = (await req.json().catch(() => null)) as { recordingId?: string | null; timeZone?: string; messages?: ChatTurn[] } | null;
   const turns = (body?.messages ?? [])
     .filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim())
     .slice(-24)
@@ -22,8 +22,10 @@ export async function POST(req: Request) {
   while (turns.length && turns[0].role !== "user") turns.shift();
 
   try {
-    const context = await buildContext(owner.userId, body?.recordingId ?? null, last.content);
-    return new Response(streamAnswer(context, turns), {
+    const recordingId = body?.recordingId ?? null;
+    const timeZone = typeof body?.timeZone === "string" ? body.timeZone : "UTC";
+    const context = await buildContext(owner.userId, recordingId, last.content, timeZone);
+    return new Response(streamAnswer(context, turns, { userId: owner.userId, timeZone, recordingId, allowChanges: true }), {
       headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store", "x-accel-buffering": "no" },
     });
   } catch (e) {

@@ -1,7 +1,7 @@
 /** Plain-text material Zeus is given. Kept free of server imports so it can be tested. */
 export type CtxRecording = { id: string; title: string | null; summary: string | null; started_at: string; time_zone: string; duration_ms: number | null };
 export type CtxLine = { recording_id: string; speaker: string; start_ms: number; text: string };
-export type CtxItem = { recording_id: string | null; type: string; text: string; due_at: string | null; state: string; said: string | null };
+export type CtxItem = { id: string; recording_id: string | null; type: string; text: string; due_at: string | null; state: string; said: string | null };
 
 const stamp = (ms: number) => `${String(Math.floor(ms / 60000)).padStart(2, "0")}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`;
 
@@ -15,7 +15,7 @@ function when(iso: string, timeZone: string): string {
 
 function itemLine(i: CtxItem, timeZone: string): string {
   const due = i.due_at ? ` (due ${when(i.due_at, timeZone)})` : i.said ? ` (said: "${i.said}", no date set)` : "";
-  return `- [${i.state}] ${i.type}: ${i.text}${due}`;
+  return `- [${i.state}] ${i.type}: ${i.text}${due} (id: ${i.id})`;
 }
 
 /** One recording: header, summary, items, and either its full transcript or only the matching lines. */
@@ -35,6 +35,12 @@ export function formatRecording(rec: CtxRecording, items: CtxItem[], lines: CtxL
   }
   parts.push("</recording>");
   return parts.join("\n");
+}
+
+/** Items the owner added by hand or through Zeus, which belong to no recording. */
+export function formatLooseItems(items: CtxItem[], timeZone: string): string {
+  const loose = items.filter((i) => !i.recording_id);
+  return loose.length ? ["<items-without-a-recording>", ...loose.map((i) => itemLine(i, timeZone)), "</items-without-a-recording>"].join("\n") : "";
 }
 
 /** Words worth searching for in a question. */

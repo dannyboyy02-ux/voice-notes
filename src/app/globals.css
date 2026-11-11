@@ -25,7 +25,7 @@ a { color: var(--accent); }
 button, input, select, textarea { font: inherit; color: inherit; }
 .page {
   max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px;
-  padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(96px + env(safe-area-inset-bottom, 0px));
+  padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(128px + env(safe-area-inset-bottom, 0px));
 }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
 .row { display: flex; gap: 10px; align-items: center; }
@@ -73,3 +73,12 @@ pre.log { margin: 0; background: var(--surface-2); border-radius: 10px; padding:
 .spk { font-weight: 600; color: var(--accent); }
 .list-link { display: block; color: inherit; text-decoration: none; }
 mark { background: var(--warn-soft); color: inherit; border-radius: 3px; }
+.swipe { position: relative; overflow: hidden; border-bottom: 1px solid var(--line); }
+.swipe:last-child { border-bottom: 0; }
+.swipe-front { position: relative; background: var(--surface); touch-action: pan-y; user-select: none; -webkit-user-select: none; }
+.swipe-front .item { border-bottom: 0; }
+.swipe-delete { position: absolute; top: 0; right: 0; bottom: 0; width: 92px; border: 0; background: var(--rec); color: #fff; font-weight: 600; cursor: pointer; }
+.tabs a.rec-tab { flex: none; width: 58px; height: 58px; min-height: 58px; margin-top: -22px; border-radius: 50%; background: var(--accent); color: var(--bg); display: grid; place-items: center; padding: 0; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25); }
+.tabs a.rec-tab.on { background: var(--rec); color: #fff; }
+.tabs { align-items: center; }
+.two-line { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }

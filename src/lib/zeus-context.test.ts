@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { formatRecording, searchTerms } from "./zeus-context";
+import { formatLooseItems, formatRecording, searchTerms } from "./zeus-context";
 
 const rec = { id: "r1", title: "Call with Sam", summary: "Sam can start on the 16th.", started_at: "2026-11-10T19:05:00.000Z", time_zone: "America/New_York", duration_ms: 18 * 60000 };
 const items = [
-  { recording_id: "r1", type: "reminder", text: "Call the county", due_at: "2026-11-12T14:00:00.000Z", state: "active", said: "Thursday morning" },
-  { recording_id: "r1", type: "reminder", text: "Check in with Sam", due_at: null, state: "suggested", said: "sometime next week" },
-  { recording_id: "other", type: "todo", text: "Not mine", due_at: null, state: "active", said: null },
+  { id: "i1", recording_id: "r1", type: "reminder", text: "Call the county", due_at: "2026-11-12T14:00:00.000Z", state: "active", said: "Thursday morning" },
+  { id: "i2", recording_id: "r1", type: "reminder", text: "Check in with Sam", due_at: null, state: "suggested", said: "sometime next week" },
+  { id: "i3", recording_id: "other", type: "todo", text: "Not mine", due_at: null, state: "active", said: null },
 ];
 const lines = [
   { recording_id: "r1", speaker: "B", start_ms: 417000, text: "Then I can start the 16th." },
@@ -19,8 +19,8 @@ describe("formatRecording", () => {
     expect(text).toContain("Recorded: Tue, Nov 10, 2026, 2:05 PM, 18 min");
   });
   it("lists only this recording's items, with due times in local time", () => {
-    expect(text).toContain("- [active] reminder: Call the county (due Thu, Nov 12, 2026, 9:00 AM)");
-    expect(text).toContain('- [suggested] reminder: Check in with Sam (said: "sometime next week", no date set)');
+    expect(text).toContain("- [active] reminder: Call the county (due Thu, Nov 12, 2026, 9:00 AM) (id: i1)");
+    expect(text).toContain('- [suggested] reminder: Check in with Sam (said: "sometime next week", no date set) (id: i2)');
     expect(text).not.toContain("Not mine");
   });
   it("puts this recording's lines in spoken order with speaker labels", () => {
@@ -30,6 +30,17 @@ describe("formatRecording", () => {
   });
   it("labels partial transcripts as matches, not the whole conversation", () => {
     expect(formatRecording(rec, items, lines, false)).toContain("Matching transcript lines:");
+  });
+});
+
+describe("formatLooseItems", () => {
+  it("lists only items that belong to no recording, with their ids", () => {
+    const text = formatLooseItems([...items, { id: "i9", recording_id: null, type: "todo", text: "Buy filters", due_at: null, state: "active", said: null }], "America/New_York");
+    expect(text).toContain("- [active] todo: Buy filters (id: i9)");
+    expect(text).not.toContain("Call the county");
+  });
+  it("is empty when every item belongs to a recording", () => {
+    expect(formatLooseItems(items, "America/New_York")).toBe("");
   });
 });
 

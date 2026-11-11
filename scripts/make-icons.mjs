@@ -3,9 +3,7 @@ import { chromium } from "playwright";
 
 const svg = (size) => `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 100 100">
   <rect width="100" height="100" fill="#0f5fa8"/>
-  <rect x="39" y="18" width="22" height="40" rx="11" fill="#fff"/>
-  <path d="M28 46a22 22 0 0 0 44 0" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round"/>
-  <path d="M50 68v12M38 82h24" stroke="#fff" stroke-width="6" stroke-linecap="round"/>
+  <path d="M57 12 L27 55 H46 L41 88 L73 43 H53 Z" fill="#ffd54a" stroke="#ffffff" stroke-width="2.5" stroke-linejoin="round"/>
 </svg>`;
 
 const browser = await chromium.launch();

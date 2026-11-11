@@ -4,11 +4,12 @@ A personal iPhone home-screen web app. Record a thought or a meeting; a minute o
 
 ## How it works
 
+- **Deleting**: swipe a recording left on the Record or Notes screen and tap Delete. This removes the audio file, the transcript and that recording's items for good.
 - **Phone**: records in the browser, writes a chunk to IndexedDB every 5 seconds, and uploads straight to Supabase Storage in resumable 6 MB pieces. Audio stays on the phone until the server confirms the recording.
 - **Supabase**: login (email and password, sign-ups off), database with row-level security, a private `audio` bucket, and the scheduler. `pg_cron` runs every minute and uses `pg_net` to call `/api/tick` only when work is waiting.
 - **Vercel**: the Next.js app and the worker. Each tick claims one step at a time: `uploaded > transcribing > transcribed > extracting > ready`, or `failed` after three attempts, with a Retry button.
 - **Fast start**: when an upload is confirmed the phone calls `/api/kick`, which runs the same worker passes every few seconds until the recording is ready. The once-a-minute scheduler stays as the safety net for retries, reminders and anything the fast path misses.
-- **Zeus**: an in-app chat (`/zeus`, Claude Sonnet 5.5, no tools) for reviewing recordings. From a note it reads that recording's full transcript; from the Zeus tab it reads the 40 most recent summaries and items plus transcript lines matching the question. Chats are not saved and their cost is not in the Settings estimate.
+- **Zeus**: an in-app chat (`/zeus`, Claude Sonnet 5.5) for reviewing recordings. From a note it reads that recording's full transcript; from the Zeus tab it reads the 40 most recent summaries and items plus transcript lines matching the question. It has three tools, all limited to the owner's to-dos and reminders: add, update (wording, due time, done or active) and remove. Removal is a soft delete (the row is kept as dismissed). Every change is written into the reply as a `✓` line. Transcripts are treated as material, never instructions, and the self-test runs Zeus with the tools switched off. Chats are saved in the phone's browser storage only, and their cost is not in the Settings estimate.
 - **AssemblyAI** transcribes with speaker labels from a short-lived signed link. **Claude** returns a fixed structure (no tools): Haiku 5.5 for a short single-speaker memo, Opus 5.5 otherwise, with an Opus rerun when the cheap pass reports low confidence.
 
 ## Where it runs
@@ -48,7 +49,7 @@ A personal iPhone home-screen web app. Record a thought or a meeting; a minute o
 ```bash
 npm run lint
 npm run typecheck
-npm test        # 53 unit tests, then 5 Playwright tests with a fake microphone against mocks
+npm test        # 62 unit tests, then 6 Playwright tests with a fake microphone against mocks
 npm run build
 ```
 
@@ -64,6 +65,8 @@ Not yet verified:
 
 - Anything on a real iPhone: recording, wake lock, interruptions, the Home Screen login, push delivery, the Shortcuts hand-off.
 - The phone's resumable upload against real Supabase Storage (tested only against mocks).
+- Zeus changing to-dos against the live model (its tools are tested for input validation only; the browser test uses a mocked reply).
+- Swipe-to-delete on a real touchscreen (tested with a simulated drag).
 - Recordings with several speakers or longer than 10 minutes: the Opus path, the low-confidence rerun, the Review list, the 50 MB part roll-over.
 - The 30-day audio deletion, Retry after three failures, and "Redo with best model" end to end.
 

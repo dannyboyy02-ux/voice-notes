@@ -23,9 +23,9 @@ type Gate =
   | { kind: "ready"; userId: string; warning: string | null };
 
 const TABS = [
-  { href: "/", label: "Record" },
-  { href: "/todos", label: "To-dos" },
   { href: "/notes", label: "Notes" },
+  { href: "/todos", label: "To-dos" },
+  { href: "/", label: "Record" },
   { href: "/zeus", label: "Zeus" },
   { href: "/settings", label: "Settings" },
 ];
@@ -188,6 +188,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <nav className="tabs">
         {TABS.map((t) => {
           const on = t.href === "/" ? pathname === "/" : pathname.startsWith(t.href);
+          if (t.href === "/") {
+            return (
+              <Link key={t.href} href="/" className={`rec-tab ${on ? "on" : ""}`} aria-label="Record" data-testid="record-tab">
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                  <rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor" stroke="none" />
+                  <path d="M6 11a6 6 0 0 0 12 0M12 17v4M9 21h6" />
+                </svg>
+              </Link>
+            );
+          }
           return <Link key={t.href} href={t.href} className={on ? "on" : ""}>{t.label}</Link>;
         })}
       </nav>
