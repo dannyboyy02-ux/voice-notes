@@ -2,8 +2,15 @@
 import { chromium } from "playwright";
 
 const svg = (size) => `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 100 100">
-  <rect width="100" height="100" fill="#0f5fa8"/>
-  <path d="M57 12 L27 55 H46 L41 88 L73 43 H53 Z" fill="#ffd54a" stroke="#ffffff" stroke-width="2.5" stroke-linejoin="round"/>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4a4d52"/>
+      <stop offset="0.55" stop-color="#1f2124"/>
+      <stop offset="1" stop-color="#000000"/>
+    </linearGradient>
+  </defs>
+  <rect width="100" height="100" fill="url(#bg)"/>
+  <path d="M59 16 L29 54 H47 L41 84 L71 45 H53 Z" fill="#ffffff" stroke="#ffffff" stroke-width="5" stroke-linejoin="round"/>
 </svg>`;
 
 const browser = await chromium.launch();
