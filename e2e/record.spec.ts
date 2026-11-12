@@ -107,7 +107,7 @@ test("records with a fake microphone and reaches uploaded", async ({ page }) => 
   const button = page.getByTestId("record-button");
   await expect(button).toHaveAttribute("aria-label", "Start recording");
   await button.click();
-  await expect(button).toHaveAttribute("aria-label", "Stop recording");
+  await expect(button).toHaveAttribute("aria-label", "Pause recording");
 
   // Chunks are written to on-phone storage while recording, before anything is uploaded.
   await expect(page.getByTestId("rec-stats")).toContainText("left in this file", { timeout: 15_000 });
@@ -127,7 +127,7 @@ test("records with a fake microphone and reaches uploaded", async ({ page }) => 
   expect(whileRecording.chunks).toBeGreaterThanOrEqual(1);
   expect(mock.uploadedBytes).toBe(0);
 
-  await button.click();
+  await page.getByTestId("stop-button").click();
 
   // The recording appears with the server status "uploaded".
   await expect(page.getByTestId("upload-status").first()).toHaveText("Uploaded, waiting", { timeout: 20_000 });
@@ -174,7 +174,7 @@ test("keeps the audio on the phone when the upload fails, and recovers on reopen
   const button = page.getByTestId("record-button");
   await button.click();
   await expect(page.getByTestId("rec-stats")).toContainText("left in this file", { timeout: 15_000 });
-  await button.click();
+  await page.getByTestId("stop-button").click();
 
   await expect(page.getByTestId("local-session")).toContainText("Upload did not finish", { timeout: 20_000 });
   expect(mock.rows).toHaveLength(0);
@@ -248,7 +248,7 @@ test("swiping a recording left moves it to Trash, where it can be restored", asy
   const button = page.getByTestId("record-button");
   await button.click();
   await expect(page.getByTestId("rec-stats")).toContainText("left in this file", { timeout: 15_000 });
-  await button.click();
+  await page.getByTestId("stop-button").click();
   await expect(page.getByTestId("recent")).toHaveCount(1, { timeout: 20_000 });
   expect(mock.rows).toHaveLength(1);
 
@@ -279,8 +279,11 @@ test("swiping a recording left moves it to Trash, where it can be restored", asy
   await expect(page.getByTestId("trashed")).toHaveCount(0);
   expect(mock.rows[0].deleted_at).toBeNull();
 
-  await page.getByTestId("record-tab").click();
+  // From another screen, the microphone only opens the Record screen; it does not start recording.
+  await page.getByTestId("record-button").click();
   await expect(page.getByTestId("recent")).toHaveCount(1);
+  await expect(page.getByTestId("record-button")).toHaveAttribute("aria-label", "Start recording");
+  await expect(page.getByTestId("stop-button")).toHaveCount(0);
 });
 
 test("the look is dark by default and can be switched to light", async ({ page }) => {
@@ -298,6 +301,56 @@ test("the look is dark by default and can be switched to light", async ({ page }
   await page.reload();
   await expect(page.getByTestId("theme")).toBeVisible();
   expect(await background()).toBe("rgb(243, 245, 249)");
+});
+
+test("pause stops the clock, the microphone resumes, and stop ends the recording", async ({ page }) => {
+  const mock = await mockBackend(page);
+  await page.goto("/");
+  await page.getByLabel("Email").fill("me@example.com");
+  await page.getByLabel("Password").fill("pw");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  const button = page.getByTestId("record-button");
+  const seconds = async () => {
+    const [h, m, sec] = ((await page.getByTestId("timer").textContent()) ?? "0:0:0").split(":").map(Number);
+    return h * 3600 + m * 60 + sec;
+  };
+
+  // Idle: no red record button on the page any more, only the blue microphone in the bar.
+  await expect(page.locator(".recbtn")).toHaveCount(0);
+  await expect(page.getByTestId("stop-button")).toHaveCount(0);
+  await expect(button).toHaveCSS("background-color", "rgb(47, 107, 255)");
+  await button.click();
+  await expect(page.getByTestId("stop-button")).toBeVisible();
+  await page.waitForTimeout(2200);
+
+  // Pause: the button turns back into a microphone, and the clock stands still.
+  await button.click();
+  await expect(button).toHaveAttribute("aria-label", "Resume recording");
+  await expect(page.getByTestId("bar-timer")).toContainText("Paused");
+  if (process.env.SHOT) await page.screenshot({ path: `${process.env.SHOT}/paused.png` });
+  const atPause = await seconds();
+  expect(atPause).toBeGreaterThanOrEqual(2);
+  await page.waitForTimeout(2500);
+  expect(await seconds()).toBe(atPause);
+
+  // Resume: the clock carries on from where it stopped, not from the wall clock.
+  await button.click();
+  await expect(button).toHaveAttribute("aria-label", "Pause recording");
+  if (process.env.SHOT) await page.screenshot({ path: `${process.env.SHOT}/recording.png` });
+  await page.waitForTimeout(3200);
+  const afterResume = await seconds();
+  expect(afterResume).toBeGreaterThan(atPause);
+  expect(afterResume).toBeLessThan(atPause + 5);
+
+  // Stop ends it and the recording uploads; its length leaves out the paused time.
+  await page.getByTestId("stop-button").click();
+  await expect(page.getByTestId("upload-status").first()).toHaveText("Uploaded, waiting", { timeout: 20_000 });
+  expect(mock.rows).toHaveLength(1);
+  const durationMs = mock.rows[0].duration_ms as number;
+  expect(durationMs).toBeGreaterThan(4500);
+  expect(durationMs).toBeLessThan(7600);
+  await expect(page.getByTestId("stop-button")).toHaveCount(0);
+  await expect(button).toHaveAttribute("aria-label", "Start recording");
 });
 
 test("the opening animation plays once, then gives way to the app", async ({ page }) => {
