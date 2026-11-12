@@ -300,6 +300,41 @@ test("the look is dark by default and can be switched to light", async ({ page }
   expect(await background()).toBe("rgb(243, 245, 249)");
 });
 
+test("the opening animation plays once, then gives way to the app", async ({ page }) => {
+  await mockBackend(page);
+  await page.goto("/");
+  const splash = page.getByTestId("splash");
+  await expect(splash).toBeVisible();
+  if (process.env.SHOT) {
+    for (const ms of [120, 260, 330, 620, 900]) {
+      const waitFor = ms - (await page.evaluate(() => performance.now()));
+      if (waitFor > 0) await page.waitForTimeout(waitFor);
+      await page.screenshot({ path: `${process.env.SHOT}/splash-${ms}.png` });
+    }
+  }
+  // It hands over on its own: the sign-in form appears and the splash is gone.
+  await expect(page.getByLabel("Email")).toBeVisible({ timeout: 5000 });
+  await expect(splash).toHaveCount(0);
+
+  // Reopening in the same session does not replay the full animation.
+  const started = Date.now();
+  await page.reload();
+  await expect(page.getByLabel("Email")).toBeVisible({ timeout: 5000 });
+  expect(Date.now() - started).toBeLessThan(1100);
+});
+
+test("with reduced motion the opening screen is a still bolt with no flash", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await mockBackend(page);
+  await page.goto("/");
+  await expect(page.getByTestId("splash")).toBeVisible();
+  const animations = await page.evaluate(() => ({
+    bolt: getComputedStyle(document.querySelector(".splash-bolt")!).animationName,
+    flash: getComputedStyle(document.querySelector(".splash-flash")!).animationName,
+  }));
+  expect(animations).toEqual({ bolt: "none", flash: "none" });
+});
+
 test("phone check reports formats and builds the Shortcuts link", async ({ page }) => {
   await page.goto("/phone-check");
   await expect(page.getByTestId("env")).toContainText("Will record as");

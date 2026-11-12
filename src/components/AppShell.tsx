@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { checkPush, enablePush, type PushState } from "@/lib/client/push";
 import { api, getConfig, getSupabase } from "@/lib/client/supabase";
+import Splash from "./Splash";
 
 type App = { db: SupabaseClient; userId: string; email: string; trash: boolean; push: PushState; setPush: (p: PushState) => void; refreshOverdue: () => void };
 const Ctx = createContext<App | null>(null);
@@ -69,6 +70,18 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [push, setPush] = useState<PushState>("off");
   const [overdue, setOverdue] = useState(0);
   const [attempt, setAttempt] = useState(0);
+  const [splashDone, setSplashDone] = useState(false);
+
+  // The opening animation plays in full once per launch. After that, loading shows it only for as long as loading takes.
+  useEffect(() => {
+    let seen = false;
+    try { seen = sessionStorage.getItem("voice-notes-splash") === "1"; } catch { /* treat as first launch */ }
+    const t = setTimeout(() => {
+      setSplashDone(true);
+      try { sessionStorage.setItem("voice-notes-splash", "1"); } catch { /* ignore */ }
+    }, seen ? 0 : 1150);
+    return () => clearTimeout(t);
+  }, []);
 
   useEffect(() => {
     let live = true;
@@ -129,7 +142,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [refreshOverdue, pathname]);
 
-  if (gate.kind === "loading") return <main className="page"><p className="muted">Loading…</p></main>;
+  if (gate.kind === "loading" || !splashDone) return <Splash />;
   if (gate.kind === "setup") {
     return (
       <main className="page">
