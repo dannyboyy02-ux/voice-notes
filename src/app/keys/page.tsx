@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 
 function b64url(bytes: Uint8Array): string {
@@ -42,7 +43,10 @@ export default function Keys() {
   const [keys, setKeys] = useState<{ publicKey: string; privateKey: string } | null>(null);
   return (
     <main className="page">
-      <h1>Notification keys</h1>
+      <div className="spread">
+        <h1>Notification keys</h1>
+        <Link className="btn small secondary" href="/" data-testid="back">Back</Link>
+      </div>
       <p className="muted">
         Notifications need a key pair that belongs to this app. This page makes one inside your browser. It is not sent to any server and not shown to Claude. Copy each value into the Vercel project&apos;s environment variables under the name shown.
       </p>

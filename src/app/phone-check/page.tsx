@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useRef, useState, useSyncExternalStore } from "react";
 import { appleRemindersLink } from "@/lib/apple";
 import { CHUNK_MS, MIME_CANDIDATES, PART_BYTE_CAP, TARGET_BITS_PER_SECOND, pickMimeType } from "@/lib/recorder/mime";
@@ -308,7 +309,10 @@ export default function PhoneCheck() {
 
   return (
     <main className="page">
-      <h1>Phone check</h1>
+      <div className="spread">
+        <h1>Phone check</h1>
+        <Link className="btn small secondary" href="/settings" data-testid="back">Back</Link>
+      </div>
       <p className="muted">
         Five quick tests of what this iPhone allows. Best run from the Home Screen icon: Share, then Add to Home Screen, then open it from there. Takes about 10 minutes. At the end, tap Copy report and paste it to Claude.
       </p>
