@@ -119,12 +119,17 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }, [attempt]);
 
   const userId = gate.kind === "ready" ? gate.userId : null;
+  const trash = gate.kind === "ready" ? gate.trash : false;
   const refreshOverdue = useCallback(() => {
     if (!db || !userId) return;
-    db.from("items").select("id", { count: "exact", head: true }).eq("type", "reminder").eq("state", "active")
-      .eq("is_test", false).lt("due_at", new Date().toISOString())
-      .then(({ count }) => setOverdue(count ?? 0));
-  }, [db, userId]);
+    // Counted the same way the To-dos screen lists them: reminders from a recording in Trash are left out.
+    db.from("items").select(`id${trash ? ", recording:recordings(deleted_at)" : ""}`).eq("type", "reminder").eq("state", "active")
+      .eq("is_test", false).lt("due_at", new Date().toISOString()).limit(200)
+      .then(({ data }) => {
+        const rows = (data ?? []) as unknown as { recording?: { deleted_at: string | null } | null }[];
+        setOverdue(rows.filter((r) => !r.recording?.deleted_at).length);
+      });
+  }, [db, userId, trash]);
 
   // Overdue items are checked on every open and every time the app comes back to the front.
   useEffect(() => {

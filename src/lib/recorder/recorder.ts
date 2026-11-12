@@ -66,7 +66,26 @@ export class Recorder {
     });
   }
 
+  /** True while a part is open, including during a roll from one part to the next. */
+  get active(): boolean {
+    return this.part !== null;
+  }
+
   async start(): Promise<void> {
+    try {
+      await this.begin();
+    } catch (err) {
+      // A start that fails part-way must not leave the microphone open or listeners behind.
+      document.removeEventListener("visibilitychange", this.onVisibility);
+      this.stream?.getTracks().forEach((t) => t.stop());
+      this.stream = null;
+      await this.wake?.release().catch(() => {});
+      this.wake = null;
+      throw err;
+    }
+  }
+
+  private async begin(): Promise<void> {
     // Low-bitrate mono keeps an hour near 22 MB. The real rate is measured, not assumed.
     this.stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
     const track = this.stream.getAudioTracks()[0];

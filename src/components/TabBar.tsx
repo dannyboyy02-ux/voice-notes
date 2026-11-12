@@ -43,7 +43,7 @@ export function useRecordedMs(): number {
 export default function TabBar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { recording, paused, start, pause, resume, stop } = useRecorder();
+  const { recording, paused, engaged, start, pause, resume, stop } = useRecorder();
   const recorded = useRecordedMs();
 
   if (recording) {
@@ -77,7 +77,8 @@ export default function TabBar() {
               className="rec-tab"
               // From another screen the first tap only brings up the Record screen, so a stray tap cannot start a recording.
               onClick={() => { if (pathname === "/") void start(); else router.push("/"); }}
-              aria-label={pathname === "/" ? "Start recording" : "Open the Record screen"}
+              disabled={engaged}
+              aria-label={engaged ? "Saving the last recording" : pathname === "/" ? "Start recording" : "Open the Record screen"}
               data-testid="record-button"
             >
               <Mic />

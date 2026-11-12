@@ -53,7 +53,7 @@ A personal iPhone home-screen web app. Record a thought or a meeting; a minute o
 ```bash
 npm run lint
 npm run typecheck
-npm test        # 62 unit tests, then 10 Playwright tests with a fake microphone against mocks
+npm test        # 66 unit tests, then 11 Playwright tests (one walks every screen with realistic data)
 npm run build
 ```
 
@@ -76,6 +76,15 @@ Not yet verified:
 - The 30-day audio deletion, Retry after three failures, and "Redo with best model" end to end.
 
 Database version: Trash and the "last tick" fix both need the current `supabase/setup.sql` to have been run. The app works without it, with Trash switched off.
+
+Behaviours worth knowing:
+
+- A redo or a repeated extraction never removes items you have kept, edited, completed or dismissed. It replaces only suggestions nobody acted on and adds only tasks that are new.
+- Items added through Zeus belong to no recording, so deleting or redoing a recording does not remove them.
+- After an upload the fast path stops at the first failed step; the scheduler retries a minute later, up to three attempts.
+- A transcription that cannot be read back eight times in a row stops as failed with Retry. A job the speech service leaves queued indefinitely is not detected.
+- A reminder is marked as sent before the push goes out, so it is sent at most once; if the push fails it shows only as overdue in the app.
+- The worker only processes recordings belonging to `OWNER_USER_ID`, and only signs audio paths inside that user's folder.
 
 Known issue: databases set up before pull request 3 do not record the "last tick" stamp, because Supabase rejects an `UPDATE` without `WHERE` from API roles. Nothing depends on it; re-running `supabase/setup.sql` fixes it.
 

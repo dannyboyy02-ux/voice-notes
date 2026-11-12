@@ -157,3 +157,4 @@ mark { background: var(--warn-soft); color: inherit; border-radius: 3px; }
 @media (prefers-reduced-motion: reduce) { .rec-tab.is-live { animation: none; } }
 .avatar.small { width: 34px; height: 34px; font-size: 0.95rem; margin: 2px 0 0; flex: none; }
 details.note > summary { cursor: pointer; color: var(--accent); padding: 2px 0 4px; }
+.tabs .rec-tab:disabled { opacity: 0.5; }

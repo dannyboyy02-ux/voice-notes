@@ -9,6 +9,8 @@ type RecorderApi = {
   view: RecorderView | null;
   recording: boolean;
   paused: boolean;
+  /** True from the tap on the microphone until the recording has fully finished saving. */
+  engaged: boolean;
   error: string;
   start: () => Promise<void>;
   pause: () => void;
@@ -39,6 +41,7 @@ export default function RecorderProvider({ userId, children }: { userId: string;
   const [local, setLocal] = useState<LocalSession[]>([]);
   const [progress, setProgress] = useState<Record<string, number>>({});
   const [changed, setChanged] = useState(0);
+  const [engaged, setEngaged] = useState(false);
 
   const refreshLocal = useCallback(async () => { setLocal(await listSessions().catch(() => [])); }, []);
 
@@ -71,39 +74,46 @@ export default function RecorderProvider({ userId, children }: { userId: string;
   }, [upload]);
 
   const start = useCallback(async () => {
+    // One recorder at a time: a tap while the last recording is still saving is ignored.
     if (recorder.current) return;
     setError("");
-    try {
-      const r = new Recorder(userId, setView, (ids) => {
+    setEngaged(true);
+    // Updates are accepted only from the recorder that is current, so a late message from a
+    // recording that has just ended can never disturb the next one.
+    const r: Recorder = new Recorder(
+      userId,
+      (v) => { if (recorder.current === r) setView(v); },
+      (ids) => {
+        if (!r.active && recorder.current === r) {
+          recorder.current = null;
+          setEngaged(false);
+        }
         void (async () => {
           await refreshLocal();
           setChanged((n) => n + 1);
           for (const id of ids) void upload(id);
         })();
-      });
-      recorder.current = r;
+      },
+    );
+    recorder.current = r;
+    try {
       await r.start();
     } catch (e) {
-      recorder.current = null;
+      if (recorder.current === r) recorder.current = null;
+      setEngaged(false);
       const name = (e as Error).name;
       setError(name === "NotAllowedError" ? "Microphone access was refused. Allow it in Settings > Voice Notes." : `Could not start: ${(e as Error).message}`);
     }
   }, [userId, refreshLocal, upload]);
 
-  const stop = useCallback(async () => {
-    const r = recorder.current;
-    recorder.current = null;
-    await r?.stop();
-  }, []);
+  // The recorder lets go of itself when it has finished saving (see above), whether it was stopped here or by an interruption.
+  const stop = useCallback(async () => { await recorder.current?.stop(); }, []);
   const pause = useCallback(() => recorder.current?.pause(), []);
   const resume = useCallback(() => recorder.current?.resume(), []);
-
-  // An interruption ends the recording from inside the recorder; let go of it here too.
   const active = view?.recording ?? false;
-  useEffect(() => { if (!active && view) recorder.current = null; }, [active, view]);
 
   return (
-    <Ctx.Provider value={{ view, recording: active, paused: view?.paused ?? false, error, start, pause, resume, stop, local, progress, upload, refreshLocal, changed }}>
+    <Ctx.Provider value={{ view, recording: active, paused: view?.paused ?? false, engaged, error, start, pause, resume, stop, local, progress, upload, refreshLocal, changed }}>
       {children}
     </Ctx.Provider>
   );
