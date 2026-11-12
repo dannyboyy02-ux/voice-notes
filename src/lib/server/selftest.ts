@@ -71,7 +71,7 @@ export async function selftest(req: Request, action: string | null): Promise<Rec
 
   const { data: last } = await db.from("selftest_runs").select("*").order("started_at", { ascending: false }).limit(1).maybeSingle();
 
-  if (action === "start" || !last) {
+  if (action === "start" || action === "restart" || !last) {
     if (last && !last.done && Date.now() - new Date(last.started_at).getTime() < 15 * 60_000 && action !== "restart") {
       return { ok: false, note: "a self-test is already running; call without action=start to follow it", run: last.id };
     }

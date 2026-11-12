@@ -84,7 +84,8 @@ async function runTool(userId: string, timeZone: string, recordingId: string | n
       dueAt = d.dueAt;
     }
     const { data, error } = await db.from("items").insert({
-      user_id: userId, recording_id: recordingId, type: input.type, text: input.text,
+      // Not tied to the recording being discussed: an item the owner asked for should outlive a redo or a deletion of it.
+      user_id: userId, recording_id: null, type: input.type, text: input.text,
       due_at: dueAt, due_local: input.due_local ?? null, state: "active", said: null,
     }).select("id").single();
     if (error) return { content: `Could not add it: ${error.message}`, isError: true, note: null };
@@ -92,7 +93,7 @@ async function runTool(userId: string, timeZone: string, recordingId: string | n
   }
 
   const itemId = (parsed.data as { id: string }).id;
-  const { data: item } = await db.from("items").select("id, text, state, due_at").eq("id", itemId).eq("user_id", userId).maybeSingle();
+  const { data: item } = await db.from("items").select("id, text, state, due_at, apple_sent_at").eq("id", itemId).eq("user_id", userId).maybeSingle();
   if (!item) return { content: "No item with that id belongs to the owner.", isError: true, note: null };
 
   if (name === "remove_item") {
@@ -122,6 +123,14 @@ async function runTool(userId: string, timeZone: string, recordingId: string | n
   }
   const { error } = await db.from("items").update(patch).eq("id", itemId).eq("user_id", userId);
   if (error) return { content: `Could not change it: ${error.message}`, isError: true, note: null };
+  // Things the owner should be told, because the change alone will not do what they expect.
+  const caveats: string[] = [];
+  const finalState = (patch.state as string | undefined) ?? item.state;
+  if (patch.due_at && item.apple_sent_at) caveats.push("This item was already sent to Apple Reminders: the copy there keeps its old time, and items sent to Apple do not alert in this app.");
+  if (patch.due_at && finalState !== "active") caveats.push(`The item is ${finalState}, so it will not alert unless it is marked active.`);
+  if (caveats.length) {
+    return { content: JSON.stringify({ updated: itemId, ...patch, tell_the_owner: caveats }), isError: false, note: `Updated "${input.text ?? item.text}": ${did.join(", ")}` };
+  }
   return { content: JSON.stringify({ updated: itemId, ...patch }), isError: false, note: `Updated "${input.text ?? item.text}": ${did.join(", ")}` };
 }
 

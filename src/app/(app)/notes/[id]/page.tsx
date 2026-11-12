@@ -45,12 +45,16 @@ function Note() {
     return () => clearInterval(t);
   }, [processing, load]);
 
+  // The moment asked for may fall inside a line rather than exactly on its start, so use the last line that begins at or before it.
+  const wanted = jumpTo === null ? null : Number(jumpTo);
+  const nearest = wanted === null || !lines.length ? null : (lines.filter((l) => l.start_ms <= wanted).at(-1) ?? lines[0]).start_ms;
+
   // Tapping an item or a search hit lands on the moment it was said.
   useEffect(() => {
     if (jumped.current || !jumpTo || !lines.length) return;
     jumped.current = true;
-    document.getElementById(`u-${jumpTo}`)?.scrollIntoView({ block: "center" });
-  }, [jumpTo, lines]);
+    document.getElementById(`u-${nearest}`)?.scrollIntoView({ block: "center" });
+  }, [jumpTo, lines, nearest]);
 
   if (rec === undefined) return <p className="muted">Loading…</p>;
   if (rec === null) return <p className="muted">This recording was not found.</p>;
@@ -104,7 +108,7 @@ function Note() {
         {new Date(rec.started_at).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
         {rec.duration_ms ? ` · ${duration(rec.duration_ms / 1000)}` : ""}{rec.part > 1 ? ` · part ${rec.part}` : ""}
       </div>
-      <h1 data-testid="note-title">{rec.title ?? "Recording"}</h1>
+      <h1 data-testid="note-title">{rec.title ?? "Untitled recording"}</h1>
       {rec.status !== "ready" && (
         <div className={`banner ${rec.status === "failed" ? "rec" : ""}`} data-testid="note-status">
           <span>
@@ -130,7 +134,7 @@ function Note() {
         <section className="card">
           <div className="label">Transcript{speakerNames.length > 1 ? ` · ${speakerNames.length} speakers` : ""}</div>
           {lines.map((l) => (
-            <div key={l.idx} id={`u-${l.start_ms}`} style={jumpTo === String(l.start_ms) ? { background: "var(--warn-soft)", borderRadius: 8, padding: 4 } : undefined}>
+            <div key={l.idx} id={`u-${l.start_ms}`} style={nearest === l.start_ms ? { background: "var(--warn-soft)", borderRadius: 8, padding: 4 } : undefined}>
               <span className="spk">Speaker {l.speaker}</span> <span className="small muted">{stamp(l.start_ms)}</span>
               <div>{l.text}</div>
             </div>

@@ -5,11 +5,13 @@ import { useEffect, useState } from "react";
 import { useApp } from "@/components/AppShell";
 import SwipeToDelete from "@/components/SwipeToDelete";
 import { deleteRecording } from "@/lib/client/recordings";
-import { duration, stamp } from "@/lib/format";
+import { duration, shortDay, stamp } from "@/lib/format";
 import { STATUS_LABEL } from "@/lib/pipeline/steps";
 import type { Recording } from "@/lib/types";
 
 type Hit = { recording_id: string; title: string | null; started_at: string; kind: string; at_ms: number | null; snippet: string };
+
+const KIND: Record<string, string> = { summary: "Summary", transcript: "Transcript", todo: "To-do", reminder: "Reminder" };
 
 /** The search function marks matches with [[ ]]. Rendered as text, so transcript content can never inject markup. */
 function Snippet({ text }: { text: string }) {
@@ -23,7 +25,7 @@ function Snippet({ text }: { text: string }) {
 }
 
 export default function NotesPage() {
-  const { db, trash } = useApp();
+  const { db, trash, email } = useApp();
   const [recordings, setRecordings] = useState<Recording[] | null>(null);
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<Hit[] | null>(null);
@@ -60,7 +62,7 @@ export default function NotesPage() {
           {hits.map((h, i) => (
             <Link key={i} className="item list-link" href={`/notes/${h.recording_id}${h.at_ms !== null ? `?t=${h.at_ms}` : ""}`} data-testid="hit">
               <div>
-                <div className="small muted">{h.title ?? "Recording"} · {new Date(h.started_at).toLocaleDateString()} · {h.kind}{h.at_ms !== null ? ` at ${stamp(h.at_ms)}` : ""}</div>
+                <div className="small muted">{h.title ?? "Untitled recording"} • {shortDay(h.started_at)} • {KIND[h.kind] ?? h.kind}{h.at_ms !== null ? ` at ${stamp(h.at_ms)}` : ""}</div>
                 <div><Snippet text={h.snippet} /></div>
               </div>
             </Link>
@@ -82,8 +84,9 @@ export default function NotesPage() {
               }}
             >
               <Link className="item list-link" href={`/notes/${r.id}`} data-testid="note" draggable={false}>
+                <span className="avatar small" aria-hidden="true">{(email[0] ?? "V").toUpperCase()}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div>{r.title ?? "Recording"}{r.part > 1 ? ` (part ${r.part})` : ""}</div>
+                  <div>{r.title ?? "Untitled recording"}{r.part > 1 ? ` (part ${r.part})` : ""}</div>
                   <div className="small muted">
                     {new Date(r.started_at).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
                     {r.duration_ms ? ` · ${duration(r.duration_ms / 1000)}` : ""}

@@ -125,8 +125,9 @@ export default function SettingsPage() {
           <input type="checkbox" checked={apple} onChange={(e) => save({ apple_reminders: e.target.checked })} style={{ width: 24, height: 24 }} data-testid="apple-toggle" />
         </label>
         {apple && (
-          <div className="note small muted">
-            <p>Adds a “Send to Apple Reminders” button on the To-dos tab. It needs one Shortcut, made once in the Shortcuts app:</p>
+          <details className="note small muted">
+            <summary>How to set up the Shortcut (once)</summary>
+            <p style={{ marginTop: 6 }}>Adds a “Send to Apple Reminders” button on the To-dos tab. It needs one Shortcut, made in the Shortcuts app:</p>
             <ol style={{ paddingLeft: "1.2em", margin: "6px 0" }}>
               <li>New shortcut, named exactly <b>{APPLE_SHORTCUT_NAME}</b>.</li>
               <li>Add “Get Dictionary from Input” and set its input to Shortcut Input.</li>
@@ -134,7 +135,7 @@ export default function SettingsPage() {
               <li>Inside the repeat, add “Add New Reminder”. Set the title to Repeat Item’s <b>title</b>, notes to its <b>notes</b>, and the alert time to its <b>due</b>.</li>
             </ol>
             <p>Items you send are marked, with Undo. Sent items do not also alert in this app.</p>
-          </div>
+          </details>
         )}
       </section>
 

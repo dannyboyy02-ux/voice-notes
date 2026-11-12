@@ -21,10 +21,6 @@ const Mic = () => (
     <path d="M6 11a6 6 0 0 0 12 0M12 17v4M9 21h6" />
   </svg>
 );
-const Pause = () => (
-  <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1.5" /><rect x="14" y="5" width="4" height="14" rx="1.5" /></svg>
-);
-
 /** A clock that keeps counting between recorder updates, and stands still while paused. */
 export function useRecordedMs(): number {
   const { view, recording, paused } = useRecorder();
@@ -40,26 +36,28 @@ export function useRecordedMs(): number {
 }
 
 /**
- * The bottom bar. Idle: four tabs around a blue microphone. Recording: the microphone becomes
- * pause (and, once paused, a microphone again to resume), with a stop button to its right.
+ * The bottom bar. Idle: four tabs around a blue microphone. Recording: the tabs give way to the timer,
+ * the microphone (tap to pause, tap again to resume) and a stop button to its right. A ring pulses
+ * around the microphone while it is live and stops when paused.
  */
 export default function TabBar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { recording, paused, start, pause, resume, stop } = useRecorder();
+  const { recording, paused, engaged, start, pause, resume, stop } = useRecorder();
   const recorded = useRecordedMs();
 
   if (recording) {
     return (
       <nav className="tabs recording" aria-label="Recording controls">
         <div className="rec-clock" data-testid="bar-timer">
-          <span className={`rec-dot ${paused ? "paused" : ""}`} />
-          {paused ? "Paused" : "Recording"} · {clock(recorded)}
+          <span className="rec-dots" aria-hidden="true" />
+          <span>{paused ? "Paused" : "Recording"} · {clock(recorded)}</span>
+          <span className="rec-dots" aria-hidden="true" />
         </div>
         <div className="rec-controls">
           <span className="rec-spacer" />
-          <button className="rec-tab" onClick={paused ? resume : pause} aria-label={paused ? "Resume recording" : "Pause recording"} data-testid="record-button">
-            {paused ? <Mic /> : <Pause />}
+          <button className={`rec-tab ${paused ? "is-paused" : "is-live"}`} onClick={paused ? resume : pause} aria-label={paused ? "Resume recording" : "Pause recording"} data-testid="record-button">
+            <Mic />
           </button>
           <button className="stop-tab" onClick={() => { void stop(); if (pathname !== "/") router.push("/"); }} aria-label="Stop recording" data-testid="stop-button">
             <span />
@@ -79,7 +77,8 @@ export default function TabBar() {
               className="rec-tab"
               // From another screen the first tap only brings up the Record screen, so a stray tap cannot start a recording.
               onClick={() => { if (pathname === "/") void start(); else router.push("/"); }}
-              aria-label={pathname === "/" ? "Start recording" : "Open the Record screen"}
+              disabled={engaged}
+              aria-label={engaged ? "Saving the last recording" : pathname === "/" ? "Start recording" : "Open the Record screen"}
               data-testid="record-button"
             >
               <Mic />

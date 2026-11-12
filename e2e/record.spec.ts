@@ -320,6 +320,7 @@ test("pause stops the clock, the microphone resumes, and stop ends the recording
   await expect(page.getByTestId("stop-button")).toHaveCount(0);
   await expect(button).toHaveCSS("background-color", "rgb(47, 107, 255)");
   await button.click();
+  await expect(button).toHaveAttribute("aria-label", "Pause recording");
   await expect(page.getByTestId("stop-button")).toBeVisible();
   await page.waitForTimeout(2200);
 

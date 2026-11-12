@@ -1,5 +1,5 @@
 import "server-only";
-import { buildItemRows } from "../items";
+import { buildItemRows, onlyNewItems } from "../items";
 import { llmCostUsd, pickModel, shouldEscalate, sttCostUsd, BEST_MODEL, type ModelId, type ModelMode } from "../models";
 import { onStepFailure, onStepSuccess, type WorkStep } from "../pipeline/steps";
 import { adminDb, AUDIO_BUCKET } from "./db";
@@ -12,6 +12,7 @@ type Rec = {
   id: string; user_id: string; status: string; attempts: number; started_at: string; time_zone: string;
   duration_ms: number | null; storage_path: string | null; aai_transcript_id: string | null;
   speakers: number | null; model_override: string | null; is_test: boolean; title: string | null;
+  deleted_at?: string | null;
 };
 
 export type TickReport = {
@@ -21,10 +22,13 @@ export type TickReport = {
   steps: { id: string; step: string; result: string }[];
   audio_deleted: number;
   trash_emptied: number;
+  /** True when a step failed in this pass; the retry belongs to the scheduler, a minute later. */
+  step_failed: boolean;
   errors: string[];
 };
 
 const SIGNED_URL_SECONDS = 3 * 3600;
+const POLL_ERROR_LIMIT = 8;
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 async function fail(rec: Rec, step: WorkStep, error: string) {
@@ -38,6 +42,8 @@ async function startTranscription(rec: Rec): Promise<string> {
   const db = adminDb();
   if (rec.aai_transcript_id) return "already submitted";
   if (!rec.storage_path) throw new Error("The recording has no audio file.");
+  // The service role can sign any path, so only ever sign a file inside this recording's own folder.
+  if (!rec.storage_path.startsWith(`${rec.user_id}/`)) throw new Error("The audio file does not belong to this recording.");
   const signed = await db.storage.from(AUDIO_BUCKET).createSignedUrl(rec.storage_path, SIGNED_URL_SECONDS);
   if (signed.error || !signed.data) throw new Error(`Could not sign the audio link: ${signed.error?.message}`);
   const id = await submitTranscript(signed.data.signedUrl);
@@ -118,12 +124,12 @@ async function extract(rec: Rec): Promise<string> {
     })));
   }
 
-  // Replace only items the owner has not touched, so a repeat or a redo never loses their edits.
-  await db.from("items").delete().eq("recording_id", rec.id).in("state", ["suggested", "active"])
-    .is("notified_at", null).is("apple_sent_at", null);
+  // Items already on the recording are kept as they are: the owner may have edited, dated, completed or
+  // dismissed them, here or through Zeus. Only suggestions nobody has acted on are replaced, and only
+  // genuinely new tasks are added, so a repeat or a redo never loses work and never doubles an item.
+  await db.from("items").delete().eq("recording_id", rec.id).eq("state", "suggested").is("notified_at", null).is("apple_sent_at", null);
   const { data: kept } = await db.from("items").select("text").eq("recording_id", rec.id);
-  const keptText = new Set((kept ?? []).map((k) => k.text.toLowerCase()));
-  const rows = buildItemRows(out.result, rec).filter((r) => !keptText.has(r.text.toLowerCase()));
+  const rows = onlyNewItems(buildItemRows(out.result, rec), (kept ?? []).map((k) => k.text));
   if (rows.length) {
     const { error } = await db.from("items").insert(rows);
     if (error) throw new Error(error.message);
@@ -142,7 +148,8 @@ async function extract(rec: Rec): Promise<string> {
   }).eq("id", rec.id).eq("status", "extracting");
   if (error) throw new Error(error.message);
 
-  if (firstReady && !rec.is_test) {
+  // No announcement for a recording that was moved to Trash while it was being processed.
+  if (firstReady && !rec.is_test && !rec.deleted_at) {
     const n = rows.length;
     await sendPush(rec.user_id, {
       title: "Your recording is ready",
@@ -160,13 +167,15 @@ async function extract(rec: Rec): Promise<string> {
 export async function runTick(budgetMs = 240_000): Promise<TickReport> {
   const db = adminDb();
   const started = Date.now();
-  const report: TickReport = { reminders_sent: [], swept: 0, polled: [], steps: [], audio_deleted: 0, trash_emptied: 0, errors: [] };
+  const owner = process.env.OWNER_USER_ID?.trim() || null;
+  const report: TickReport = { reminders_sent: [], swept: 0, polled: [], steps: [], audio_deleted: 0, trash_emptied: 0, step_failed: false, errors: [] };
 
   // 1. Due reminders first: they are time-sensitive and quick.
   try {
     const { data: due, error } = await db.rpc("claim_due_reminders");
     if (error) throw new Error(error.message);
     for (const item of due ?? []) {
+      if (owner && item.user_id !== owner) continue;
       let via = "in-app only";
       try {
         const r = await sendPush(item.user_id, { title: "Reminder", body: item.text, url: "/todos", tag: `item-${item.id}` });
@@ -193,7 +202,17 @@ export async function runTick(budgetMs = 240_000): Promise<TickReport> {
     if (error) throw new Error(error.message);
     for (const rec of (polling ?? []) as Rec[]) {
       try { report.polled.push({ id: rec.id, result: await pollTranscription(rec) }); }
-      catch (e) { report.polled.push({ id: rec.id, result: `error: ${msg(e)}` }); }
+      catch (e) {
+        // A poll that keeps failing must not leave the recording "Transcribing" for ever: count it, and
+        // after several, stop as failed so the note shows Retry. Retry submits a fresh job.
+        const tries = rec.attempts + 1;
+        if (tries >= POLL_ERROR_LIMIT) {
+          await db.from("recordings").update({ status: "failed", failed_step: "transcribing", aai_transcript_id: null, locked_until: null, last_error: `Could not read the transcript: ${msg(e)}`.slice(0, 500) }).eq("id", rec.id).eq("status", "transcribing");
+        } else {
+          await db.from("recordings").update({ attempts: tries, locked_until: null, last_error: msg(e).slice(0, 500) }).eq("id", rec.id).eq("status", "transcribing");
+        }
+        report.polled.push({ id: rec.id, result: `error ${tries} of ${POLL_ERROR_LIMIT}: ${msg(e)}` });
+      }
     }
   } catch (e) { report.errors.push(`poll: ${msg(e)}`); }
 
@@ -204,6 +223,12 @@ export async function runTick(budgetMs = 240_000): Promise<TickReport> {
     const rec = (data as Rec[] | null)?.[0];
     if (!rec) break;
     const step = rec.status as WorkStep;
+    // Only the owner's recordings are ever sent to the paid services, whatever is in the table.
+    if (owner && rec.user_id !== owner) {
+      await db.from("recordings").update({ status: "failed", failed_step: step, locked_until: null, last_error: "Not the owner's recording." }).eq("id", rec.id);
+      report.steps.push({ id: rec.id, step, result: "skipped: not the owner's" });
+      continue;
+    }
     try {
       const result = step === "transcribing" ? await startTranscription(rec) : await extract(rec);
       report.steps.push({ id: rec.id, step, result });
@@ -211,6 +236,7 @@ export async function runTick(budgetMs = 240_000): Promise<TickReport> {
       const next = await fail(rec, step, msg(e));
       report.steps.push({ id: rec.id, step, result: `attempt ${rec.attempts} failed > ${next}: ${msg(e).slice(0, 200)}` });
       // Leave the retry to the next tick, a minute away, rather than burning all three attempts at once.
+      report.step_failed = true;
       break;
     }
   }
@@ -234,7 +260,11 @@ export async function runTick(budgetMs = 240_000): Promise<TickReport> {
       const cutoff = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
       const { data: gone } = await db.from("recordings").select("id, storage_path").lt("deleted_at", cutoff).limit(20);
       for (const r of gone ?? []) {
-        if (r.storage_path) await db.storage.from(AUDIO_BUCKET).remove([r.storage_path]);
+        if (r.storage_path) {
+          // If the audio cannot be removed, keep the row so the next tick tries again instead of orphaning the file.
+          const gone = await db.storage.from(AUDIO_BUCKET).remove([r.storage_path]);
+          if (gone.error) { report.errors.push(`trash audio: ${gone.error.message}`); continue; }
+        }
         const { error } = await db.from("recordings").delete().eq("id", r.id);
         if (error) report.errors.push(`trash: ${error.message}`); else report.trash_emptied++;
       }
@@ -255,6 +285,9 @@ export async function runUntilIdle(userId: string, limitMs = 90_000, passMs = 30
     const report = await runTick(60_000);
     passes++;
     if (report.errors.length) console.warn("fast path", JSON.stringify(report.errors));
+    // A failed step is retried by the scheduler a minute later. Retrying here every few seconds would
+    // use up all three attempts during a brief outage and leave the recording failed.
+    if (report.step_failed) break;
     const { count } = await adminDb().from("recordings").select("id", { count: "exact", head: true })
       .eq("user_id", userId).in("status", ["uploaded", "transcribing", "transcribed", "extracting"]);
     if (!count) break;

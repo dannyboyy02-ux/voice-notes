@@ -22,7 +22,11 @@ export async function restoreRecording(db: SupabaseClient, id: string): Promise<
 
 /** Erases a recording for good: its audio file, then its row. Its transcript and items go with the row. */
 export async function eraseRecording(db: SupabaseClient, rec: Rec): Promise<string | null> {
-  if (rec.storage_path) await db.storage.from("audio").remove([rec.storage_path]);
+  if (rec.storage_path) {
+    // If the audio cannot be removed, stop: deleting the row anyway would leave a file nothing points to.
+    const gone = await db.storage.from("audio").remove([rec.storage_path]);
+    if (gone.error) return `the audio could not be removed (${gone.error.message})`;
+  }
   const { error } = await db.from("recordings").delete().eq("id", rec.id);
   return error ? error.message : null;
 }

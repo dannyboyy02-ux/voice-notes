@@ -66,6 +66,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [overdue, setOverdue] = useState(0);
   const [attempt, setAttempt] = useState(0);
   const [splashDone, setSplashDone] = useState(false);
+  // The notifications warning can be put away for this visit; it returns the next time the app is opened.
+  const [pushDismissed, setPushDismissed] = useState(false);
 
   // The opening animation plays in full once per launch. After that, loading shows it only for as long as loading takes.
   useEffect(() => {
@@ -117,12 +119,17 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }, [attempt]);
 
   const userId = gate.kind === "ready" ? gate.userId : null;
+  const trash = gate.kind === "ready" ? gate.trash : false;
   const refreshOverdue = useCallback(() => {
     if (!db || !userId) return;
-    db.from("items").select("id", { count: "exact", head: true }).eq("type", "reminder").eq("state", "active")
-      .eq("is_test", false).lt("due_at", new Date().toISOString())
-      .then(({ count }) => setOverdue(count ?? 0));
-  }, [db, userId]);
+    // Counted the same way the To-dos screen lists them: reminders from a recording in Trash are left out.
+    db.from("items").select(`id${trash ? ", recording:recordings(deleted_at)" : ""}`).eq("type", "reminder").eq("state", "active")
+      .eq("is_test", false).lt("due_at", new Date().toISOString()).limit(200)
+      .then(({ data }) => {
+        const rows = (data ?? []) as unknown as { recording?: { deleted_at: string | null } | null }[];
+        setOverdue(rows.filter((r) => !r.recording?.deleted_at).length);
+      });
+  }, [db, userId, trash]);
 
   // Overdue items are checked on every open and every time the app comes back to the front.
   useEffect(() => {
@@ -189,10 +196,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <span>{overdue} overdue reminder{overdue === 1 ? "" : "s"}</span><b>View</b>
           </Link>
         )}
-        {pushMessage[push] && (
+        {pushMessage[push] && !pushDismissed && (
           <div className="banner" data-testid="push-banner">
             <span>{pushMessage[push]}</span>
-            {push === "off" && <button className="btn small" onClick={async () => setPush(await enablePush())}>Turn on</button>}
+            <span className="row">
+              {push === "off" && <button className="btn small" onClick={async () => setPush(await enablePush())}>Turn on</button>}
+              <button className="btn small secondary" onClick={() => setPushDismissed(true)} aria-label="Hide this notice">✕</button>
+            </span>
           </div>
         )}
         {children}

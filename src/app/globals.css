@@ -147,3 +147,14 @@ mark { background: var(--warn-soft); color: inherit; border-radius: 3px; }
 .stop-tab span { width: 22px; height: 22px; border-radius: 6px; background: #d92d20; display: block; }
 :root[data-theme="light"] .stop-tab { border: 1px solid var(--line); }
 @media (prefers-reduced-motion: reduce) { .rec-dot { animation: none; } }
+/* Recording bar: the timer sits between two dotted rules; the microphone pulses while live and dims when paused. */
+.rec-clock { width: 100%; padding: 0 16px; }
+.rec-clock > span:nth-child(2) { white-space: nowrap; }
+.rec-dots { flex: 1; height: 0; border-top: 3px dotted var(--line); }
+.rec-tab.is-live { animation: mic-live 1.6s ease-out infinite; }
+.rec-tab.is-paused { background: var(--surface-2); color: var(--ink); box-shadow: inset 0 0 0 2px #2f6bff; }
+@keyframes mic-live { 0% { box-shadow: 0 0 0 0 rgba(47, 107, 255, 0.55); } 100% { box-shadow: 0 0 0 16px rgba(47, 107, 255, 0); } }
+@media (prefers-reduced-motion: reduce) { .rec-tab.is-live { animation: none; } }
+.avatar.small { width: 34px; height: 34px; font-size: 0.95rem; margin: 2px 0 0; flex: none; }
+details.note > summary { cursor: pointer; color: var(--accent); padding: 2px 0 4px; }
+.tabs .rec-tab:disabled { opacity: 0.5; }

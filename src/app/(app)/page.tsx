@@ -15,7 +15,7 @@ type Recent = { id: string; status: Status; title: string | null; summary: strin
 
 export default function RecordPage() {
   const { db, trash } = useApp();
-  const { view, recording, paused, error, local, progress, upload, refreshLocal, changed } = useRecorder();
+  const { view, recording, paused, engaged, error, local, progress, upload, refreshLocal, changed } = useRecorder();
   const recorded = useRecordedMs();
   const [problem, setProblem] = useState("");
   const [recent, setRecent] = useState<Recent[]>([]);
@@ -48,7 +48,8 @@ export default function RecordPage() {
     void upload(s.id);
   };
 
-  const orphans = local.filter((s) => s.state === "recording" && !recording);
+  // "Unfinished" means left over from an earlier launch, never the recording that is in progress or still saving.
+  const orphans = local.filter((s) => s.state === "recording" && !engaged);
   const pending = local.filter((s) => s.state !== "recording");
 
   return (
@@ -75,8 +76,8 @@ export default function RecordPage() {
             </p>
             <div className="banner">
               {paused
-                ? "Paused. Tap the blue microphone to carry on, or the red square to finish."
-                : "Keep this screen open. Locking the phone or switching apps stops the recording."}
+                ? "Paused. Tap the microphone to carry on, or the red square to finish."
+                : "Tap the microphone to pause. Keep this screen open: locking the phone or switching apps stops the recording."}
               {!paused && view.wakeLock !== "on" && " The screen may dim: tap it now and then."}
             </div>
             {view.notice && <div className="banner rec">{view.notice}</div>}
@@ -99,7 +100,15 @@ export default function RecordPage() {
                   {s.note ? ` · ${s.note}` : ""}
                 </div>
               </div>
-              {s.state === "stopped" && <button className="btn small" onClick={() => upload(s.id)}>Upload</button>}
+              {s.state === "stopped" && (
+                <span className="row">
+                  <button className="btn small" onClick={() => upload(s.id)}>Upload</button>
+                  {/* A recording that can never upload (empty, say) would otherwise sit here for ever. */}
+                  {s.note?.startsWith("Upload did not finish") && (
+                    <button className="btn small secondary" onClick={async () => { if (confirm("Delete this audio from the phone? It has not been uploaded.")) { await deleteSession(s.id); await refreshLocal(); } }}>Discard</button>
+                  )}
+                </span>
+              )}
             </div>
           ))}
         </section>
