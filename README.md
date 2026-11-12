@@ -5,6 +5,7 @@ A personal iPhone home-screen web app. Record a thought or a meeting; a minute o
 ## How it works
 
 - **Deleting and Trash**: swipe a recording left on the Record or Notes screen and tap Delete. It moves to Trash (Settings > Trash), where it can be restored for 30 days; after that the worker erases the audio, transcript and items for good. Its to-dos are hidden and its reminders do not alert while it is in Trash. Trash needs the `deleted_at` column from the current `supabase/setup.sql`; on a database without it the app says so and deleting erases at once.
+- **Opening animation**: on launch a bolt strikes in from the right, the screen flashes once, and the bolt blinks out and returns (about 1.15 seconds, once per launch). With the phone's Reduce Motion setting on, it is a still bolt with no flash.
 - **Look**: dark grey to black by default. Settings > Appearance switches to Light or follows the phone; the choice is kept on the phone.
 - **To-dos**: each item shows the recording it came from and that recording's date, and opens it at the moment it was said.
 - **Phone**: records in the browser, writes a chunk to IndexedDB every 5 seconds, and uploads straight to Supabase Storage in resumable 6 MB pieces. Audio stays on the phone until the server confirms the recording.
@@ -51,7 +52,7 @@ A personal iPhone home-screen web app. Record a thought or a meeting; a minute o
 ```bash
 npm run lint
 npm run typecheck
-npm test        # 62 unit tests, then 7 Playwright tests with a fake microphone against mocks
+npm test        # 62 unit tests, then 9 Playwright tests with a fake microphone against mocks
 npm run build
 ```
 

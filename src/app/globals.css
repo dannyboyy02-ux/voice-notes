@@ -101,3 +101,33 @@ mark { background: var(--warn-soft); color: inherit; border-radius: 3px; }
 .source { display: block; margin-top: 4px; color: var(--muted); font-size: 0.85rem; text-decoration: none; }
 .group .seg button { padding: 8px 9px; font-size: 0.9rem; white-space: nowrap; }
 .group > .line > span:first-child { flex: 1 1 auto; min-width: 0; }
+/* Opening animation. Always dark, whatever the chosen look, so it matches the Home Screen icon. */
+.splash { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; overflow: hidden; background: linear-gradient(135deg, #4a4d52 0%, #1f2124 55%, #000 100%); }
+.splash-bolt { filter: drop-shadow(0 0 18px rgba(255, 255, 255, 0.55)); animation: bolt-strike 1.15s cubic-bezier(0.5, 0, 0.9, 0.4) both, bolt-idle 1.6s ease-in-out 1.15s infinite; }
+.splash-flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; animation: bolt-flash 1.15s linear both; }
+@keyframes bolt-strike {
+  0% { transform: translate(70vw, -34vh) scale(0.7); opacity: 0; }
+  6% { opacity: 1; }
+  22% { transform: translate(0, 0) scale(1.12); opacity: 1; }
+  30% { transform: translate(0, 0) scale(1); opacity: 1; }
+  48% { opacity: 1; }
+  52% { opacity: 0; }
+  66% { opacity: 0; }
+  72% { opacity: 1; }
+  100% { transform: translate(0, 0) scale(1); opacity: 1; }
+}
+/* One soft flash at the moment of impact, never a strobe. */
+@keyframes bolt-flash {
+  0%, 20% { opacity: 0; }
+  25% { opacity: 0.7; }
+  42%, 100% { opacity: 0; }
+}
+@keyframes bolt-idle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+/* People who ask their phone for less motion get a still bolt and no flash. */
+@media (prefers-reduced-motion: reduce) {
+  .splash-bolt { animation: none; }
+  .splash-flash { animation: none; }
+}
