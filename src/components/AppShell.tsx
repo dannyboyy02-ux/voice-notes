@@ -6,7 +6,9 @@ import { usePathname } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { checkPush, enablePush, type PushState } from "@/lib/client/push";
 import { api, getConfig, getSupabase } from "@/lib/client/supabase";
+import RecorderProvider from "./RecorderProvider";
 import Splash from "./Splash";
+import TabBar from "./TabBar";
 
 type App = { db: SupabaseClient; userId: string; email: string; trash: boolean; push: PushState; setPush: (p: PushState) => void; refreshOverdue: () => void };
 const Ctx = createContext<App | null>(null);
@@ -23,13 +25,6 @@ type Gate =
   | { kind: "not-owner"; userId: string; configured: boolean }
   | { kind: "ready"; userId: string; email: string; trash: boolean; warning: string | null };
 
-const TABS = [
-  { href: "/notes", label: "Notes" },
-  { href: "/todos", label: "To-dos" },
-  { href: "/", label: "Record" },
-  { href: "/zeus", label: "Zeus" },
-  { href: "/settings", label: "Settings" },
-];
 
 function Login({ db, onDone }: { db: SupabaseClient; onDone: () => void }) {
   const [email, setEmail] = useState("");
@@ -186,6 +181,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <Ctx.Provider value={{ db, userId: gate.userId, email: gate.email, trash: gate.trash, push, setPush, refreshOverdue }}>
+      <RecorderProvider userId={gate.userId}>
       <div className="page">
         {gate.warning && <div className="banner rec">{gate.warning}</div>}
         {overdue > 0 && pathname !== "/todos" && (
@@ -201,22 +197,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         )}
         {children}
       </div>
-      <nav className="tabs">
-        {TABS.map((t) => {
-          const on = t.href === "/" ? pathname === "/" : pathname.startsWith(t.href) || (t.href === "/settings" && pathname.startsWith("/trash"));
-          if (t.href === "/") {
-            return (
-              <Link key={t.href} href="/" className={`rec-tab ${on ? "on" : ""}`} aria-label="Record" data-testid="record-tab">
-                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-                  <rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor" stroke="none" />
-                  <path d="M6 11a6 6 0 0 0 12 0M12 17v4M9 21h6" />
-                </svg>
-              </Link>
-            );
-          }
-          return <Link key={t.href} href={t.href} className={on ? "on" : ""}>{t.label}</Link>;
-        })}
-      </nav>
+      <TabBar />
+      </RecorderProvider>
     </Ctx.Provider>
   );
 }

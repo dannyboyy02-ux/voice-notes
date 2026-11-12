@@ -1,70 +1,39 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useApp } from "@/components/AppShell";
+import { useRecorder } from "@/components/RecorderProvider";
 import SwipeToDelete from "@/components/SwipeToDelete";
+import { useRecordedMs } from "@/components/TabBar";
 import { deleteRecording } from "@/lib/client/recordings";
 import { clock, duration, megabytes } from "@/lib/format";
 import { STATUS_LABEL, type Status } from "@/lib/pipeline/steps";
-import { Recorder, type RecorderView } from "@/lib/recorder/recorder";
-import { deleteSession, listSessions, patchSession, type LocalSession } from "@/lib/recorder/store";
-import { uploadSession } from "@/lib/recorder/upload";
+import { deleteSession, patchSession, type LocalSession } from "@/lib/recorder/store";
 
 type Recent = { id: string; status: Status; title: string | null; summary: string | null; started_at: string; storage_path: string | null };
 
 export default function RecordPage() {
-  const { db, userId, trash } = useApp();
-  const recorder = useRef<Recorder | null>(null);
-  const [view, setView] = useState<RecorderView | null>(null);
-  const [now, setNow] = useState(0);
-  const [error, setError] = useState("");
-  const [local, setLocal] = useState<LocalSession[]>([]);
-  const [progress, setProgress] = useState<Record<string, number>>({});
+  const { db, trash } = useApp();
+  const { view, recording, paused, error, local, progress, upload, refreshLocal, changed } = useRecorder();
+  const recorded = useRecordedMs();
+  const [problem, setProblem] = useState("");
   const [recent, setRecent] = useState<Recent[]>([]);
-  const uploading = useRef(new Set<string>());
 
   const refresh = useCallback(async () => {
-    setLocal(await listSessions().catch(() => []));
     let q = db.from("recordings").select("id, status, title, summary, started_at, storage_path").eq("is_test", false);
     if (trash) q = q.is("deleted_at", null);
     const { data } = await q.order("started_at", { ascending: false }).limit(10);
     setRecent((data as Recent[]) ?? []);
   }, [db, trash]);
 
-  const upload = useCallback(async (id: string) => {
-    if (uploading.current.has(id)) return;
-    uploading.current.add(id);
-    try {
-      await uploadSession(id, (f) => setProgress((p) => ({ ...p, [id]: f })));
-    } catch {
-      // The session keeps its audio and shows the reason with a Retry button.
-    } finally {
-      uploading.current.delete(id);
-      await refresh();
-    }
-  }, [refresh]);
-
-  // On open: finished recordings that never uploaded are sent now. Unfinished ones wait for a tap on Recover.
+  // Reload the list on open and whenever an upload finishes.
   useEffect(() => {
     let live = true;
-    (async () => {
-      const sessions = await listSessions().catch(() => []);
-      if (!live) return;
-      for (const s of sessions) if (s.state === "stopped" || s.state === "uploading") void upload(s.id);
-      await refresh();
-    })();
-    const onOnline = () => listSessions().then((all) => all.filter((s) => s.state === "stopped").forEach((s) => void upload(s.id)));
-    window.addEventListener("online", onOnline);
-    return () => { live = false; window.removeEventListener("online", onOnline); };
-  }, [refresh, upload]);
+    (async () => { if (live) await refresh(); })();
+    return () => { live = false; };
+  }, [refresh, changed]);
 
-  const recording = view?.recording ?? false;
-  useEffect(() => {
-    if (!recording) return;
-    const t = setInterval(() => setNow(Date.now()), 500);
-    return () => clearInterval(t);
-  }, [recording]);
   // While something is processing, refresh its status.
   const busy = recent.some((r) => r.status !== "ready" && r.status !== "failed");
   useEffect(() => {
@@ -73,30 +42,9 @@ export default function RecordPage() {
     return () => clearInterval(t);
   }, [busy, refresh]);
 
-  const start = async () => {
-    setError("");
-    try {
-      const r = new Recorder(userId, setView, (ids) => {
-        void (async () => {
-          await refresh();
-          for (const id of ids) void upload(id);
-        })();
-      });
-      await r.start();
-      recorder.current = r;
-      setNow(Date.now());
-    } catch (e) {
-      const name = (e as Error).name;
-      setError(name === "NotAllowedError" ? "Microphone access was refused. Allow it in Settings > Voice Notes." : `Could not start: ${(e as Error).message}`);
-    }
-  };
-  const stop = async () => {
-    await recorder.current?.stop();
-    recorder.current = null;
-  };
   const recover = async (s: LocalSession) => {
     await patchSession(s.id, { state: "stopped", durationMs: Math.max(0, s.lastChunkAt - new Date(s.startedAt).getTime()), note: "Recovered after the app closed while recording." });
-    await refresh();
+    await refreshLocal();
     void upload(s.id);
   };
 
@@ -111,33 +59,32 @@ export default function RecordPage() {
           <p className="small">The app closed while recording on {new Date(s.startedAt).toLocaleString()}. {megabytes(s.bytes)} was saved on this phone.</p>
           <div className="row">
             <button className="btn" onClick={() => recover(s)}>Recover and upload</button>
-            <button className="btn secondary" onClick={async () => { if (confirm("Delete this audio from the phone?")) { await deleteSession(s.id); await refresh(); } }}>Discard</button>
+            <button className="btn secondary" onClick={async () => { if (confirm("Delete this audio from the phone?")) { await deleteSession(s.id); await refreshLocal(); } }}>Discard</button>
           </div>
         </div>
       ))}
 
       <section className="card">
-        <div className="timer" data-testid="timer">{clock(recording && view ? now - view.startedAt : 0)}</div>
-        <button className={`recbtn ${recording ? "stop" : ""}`} onClick={recording ? stop : start} aria-label={recording ? "Stop recording" : "Start recording"} data-testid="record-button">
-          <span />
-        </button>
+        <div className="timer" data-testid="timer">{clock(recorded)}</div>
         {recording && view ? (
           <>
             <p className="small muted" style={{ textAlign: "center" }} data-testid="rec-stats">
-              Saved on phone: {megabytes(view.totalBytes)}{view.part > 1 ? ` · part ${view.part}` : ""}
+              {paused ? "Paused. " : ""}Saved on phone: {megabytes(view.totalBytes)}{view.part > 1 ? ` · part ${view.part}` : ""}
               <br />
               {view.secondsLeft === null ? "Measuring size…" : `About ${duration(view.secondsLeft)} left in this file`}
             </p>
             <div className="banner">
-              Keep this screen open. Locking the phone or switching apps stops the recording.
-              {view.wakeLock !== "on" && " The screen may dim: tap it now and then."}
+              {paused
+                ? "Paused. Tap the blue microphone to carry on, or the red square to finish."
+                : "Keep this screen open. Locking the phone or switching apps stops the recording."}
+              {!paused && view.wakeLock !== "on" && " The screen may dim: tap it now and then."}
             </div>
             {view.notice && <div className="banner rec">{view.notice}</div>}
           </>
         ) : (
-          <p className="small muted" style={{ textAlign: "center" }}>Tap to record. Audio is saved on this phone every few seconds.</p>
+          <p className="small muted" style={{ textAlign: "center" }}>Tap the blue microphone below to record. Audio is saved on this phone every few seconds.</p>
         )}
-        {error && <div className="banner rec">{error}</div>}
+        {(error || problem) && <div className="banner rec">{error || problem}</div>}
       </section>
 
       {pending.length > 0 && (
@@ -168,8 +115,8 @@ export default function RecordPage() {
                 key={r.id}
                 label={r.title ?? fallback}
                 onDelete={async () => {
-                  const problem = await deleteRecording(db, r, trash);
-                  if (problem) setError(`Could not delete: ${problem}`);
+                  const failed = await deleteRecording(db, r, trash);
+                  if (failed) setProblem(`Could not delete: ${failed}`);
                   await refresh();
                 }}
               >

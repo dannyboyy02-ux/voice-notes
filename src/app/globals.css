@@ -86,8 +86,7 @@ mark { background: var(--warn-soft); color: inherit; border-radius: 3px; }
 .swipe-front { position: relative; background: var(--surface); touch-action: pan-y; user-select: none; -webkit-user-select: none; }
 .swipe-front .item { border-bottom: 0; }
 .swipe-delete { position: absolute; top: 0; right: 0; bottom: 0; width: 92px; border: 0; background: var(--rec); color: #fff; font-weight: 600; cursor: pointer; }
-.tabs a.rec-tab { flex: none; width: 58px; height: 58px; min-height: 58px; margin-top: -22px; border-radius: 50%; background: var(--accent); color: var(--on-accent); display: grid; place-items: center; padding: 0; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25); }
-.tabs a.rec-tab.on { background: var(--rec); color: #fff; }
+.tabs .rec-tab { flex: none; width: 58px; height: 58px; min-height: 58px; margin-top: -22px; border-radius: 50%; background: var(--accent); color: var(--on-accent); display: grid; place-items: center; padding: 0; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25); }
 .tabs { align-items: center; }
 .two-line { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .group { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
@@ -131,3 +130,20 @@ mark { background: var(--warn-soft); color: inherit; border-radius: 3px; }
   .splash-bolt { animation: none; }
   .splash-flash { animation: none; }
 }
+/* The centre microphone is always blue. */
+.tabs .rec-tab { border: 0; cursor: pointer; background: #2f6bff; color: #fff; width: 62px; height: 62px; min-height: 62px; }
+.tabs a { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 0.72rem; }
+.tabs a.on { background: none; color: var(--ink); }
+.tabs a svg { opacity: 0.9; }
+.tabs.recording { flex-direction: column; gap: 6px; padding-top: 10px; }
+.rec-clock { display: flex; align-items: center; gap: 8px; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 0.95rem; }
+.rec-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--rec); animation: rec-pulse 1.2s ease-in-out infinite; }
+.rec-dot.paused { background: var(--muted); animation: none; }
+@keyframes rec-pulse { 50% { opacity: 0.25; } }
+/* Microphone in the centre, stop to its right; the empty spacer keeps the microphone centred. */
+.rec-controls { display: grid; grid-template-columns: 62px 62px 62px; gap: 22px; align-items: center; justify-content: center; }
+.rec-controls .rec-tab { margin-top: 0; }
+.stop-tab { width: 62px; height: 62px; border-radius: 50%; border: 0; background: #fff; display: grid; place-items: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25); }
+.stop-tab span { width: 22px; height: 22px; border-radius: 6px; background: #d92d20; display: block; }
+:root[data-theme="light"] .stop-tab { border: 1px solid var(--line); }
+@media (prefers-reduced-motion: reduce) { .rec-dot { animation: none; } }

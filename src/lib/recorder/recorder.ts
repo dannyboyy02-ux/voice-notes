@@ -4,6 +4,11 @@ import { patchSession, putChunk, putSession, type LocalSession } from "./store";
 
 export type RecorderView = {
   recording: boolean;
+  paused: boolean;
+  /** Milliseconds actually recorded so far, not counting time spent paused. */
+  activeMs: number;
+  /** When activeMs was measured, so a ticking clock can add the time since. */
+  at: number;
   startedAt: number;
   bytes: number; // bytes in the current part
   totalBytes: number;
@@ -13,7 +18,7 @@ export type RecorderView = {
   notice: string | null;
 };
 
-type Part = { session: LocalSession; recorder: MediaRecorder; startedAt: number; seq: number; bytes: number; writes: Promise<void> };
+type Part = { session: LocalSession; recorder: MediaRecorder; startedAt: number; seq: number; bytes: number; writes: Promise<void>; activeBefore: number; runStart: number | null };
 
 /**
  * Records the microphone into on-phone storage, one chunk every few seconds.
@@ -29,6 +34,13 @@ export class Recorder {
   private finished: string[] = [];
   private stopping = false;
   private muteTimer: ReturnType<typeof setTimeout> | null = null;
+  private paused = false;
+  /** Recorded time in parts that are already finished. */
+  private earlierMs = 0;
+
+  private partMs(p: Part): number {
+    return p.activeBefore + (p.runStart === null ? 0 : Date.now() - p.runStart);
+  }
 
   constructor(
     private userId: string,
@@ -41,11 +53,14 @@ export class Recorder {
     const p = this.part;
     this.onView({
       recording: !!p && !this.stopping,
+      paused: !!p && this.paused,
+      activeMs: this.earlierMs + (p ? this.partMs(p) : 0),
+      at: Date.now(),
       startedAt: this.firstStartedAt,
       bytes: p?.bytes ?? 0,
       totalBytes: this.totalBytes,
       part: p?.session.part ?? 1,
-      secondsLeft: p ? secondsLeft(p.bytes, Date.now() - p.startedAt, this.cap) : null,
+      secondsLeft: p ? secondsLeft(p.bytes, this.partMs(p), this.cap) : null,
       wakeLock: !("wakeLock" in navigator) ? "unsupported" : this.wake && !this.wake.released ? "on" : "off",
       notice: this.notice,
     });
@@ -108,7 +123,7 @@ export class Recorder {
       state: "recording",
     };
     await putSession(session);
-    const part: Part = { session, recorder, startedAt: Date.now(), seq: 0, bytes: 0, writes: Promise.resolve() };
+    const part: Part = { session, recorder, startedAt: Date.now(), seq: 0, bytes: 0, writes: Promise.resolve(), activeBefore: 0, runStart: Date.now() };
     recorder.ondataavailable = (e) => {
       if (!e.data.size) return;
       const seq = part.seq++;
@@ -134,7 +149,11 @@ export class Recorder {
     });
     await new Promise((r) => setTimeout(r, 50)); // let the last dataavailable land
     await part.writes;
-    await patchSession(part.session.id, { state: "stopped", durationMs: Date.now() - part.startedAt });
+    const recorded = this.partMs(part);
+    part.activeBefore = recorded;
+    part.runStart = null;
+    this.earlierMs += recorded;
+    await patchSession(part.session.id, { state: "stopped", durationMs: recorded });
     this.finished.push(part.session.id);
   }
 
@@ -148,6 +167,28 @@ export class Recorder {
     this.emit();
   }
 
+  /** Pauses without ending the recording. What was said so far is flushed to the phone's storage first. */
+  pause(): void {
+    const p = this.part;
+    if (!p || this.paused || this.stopping || p.recorder.state !== "recording") return;
+    try { p.recorder.requestData(); } catch { /* the next chunk will carry it */ }
+    p.recorder.pause();
+    p.activeBefore = this.partMs(p);
+    p.runStart = null;
+    this.paused = true;
+    this.emit();
+  }
+
+  resume(): void {
+    const p = this.part;
+    if (!p || !this.paused || this.stopping) return;
+    if (p.recorder.state === "paused") p.recorder.resume();
+    p.runStart = Date.now();
+    this.paused = false;
+    void this.acquireWakeLock().then(() => this.emit());
+    this.emit();
+  }
+
   async stop(reason: "stopped" | "interrupted" = "stopped"): Promise<void> {
     if (this.stopping || !this.part) return;
     this.stopping = true;
@@ -156,6 +197,7 @@ export class Recorder {
     await this.finishPart(part);
     if (reason === "interrupted") await patchSession(part.session.id, { note: "Stopped by an interruption. Everything up to that moment was saved." });
     this.part = null;
+    this.paused = false;
     if (this.muteTimer) clearTimeout(this.muteTimer);
     document.removeEventListener("visibilitychange", this.onVisibility);
     this.stream?.getTracks().forEach((t) => t.stop());
