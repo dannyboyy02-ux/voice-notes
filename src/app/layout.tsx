@@ -16,7 +16,7 @@ export const viewport: Viewport = {
   themeColor: "#0b0c0e",
 };
 
-const THEME_SCRIPT = `try{var t=localStorage.getItem("voice-notes-theme");if(t==="light"||t==="auto")document.documentElement.dataset.theme=t}catch(e){}`;
+const THEME_SCRIPT = `try{var t=localStorage.getItem("voice-notes-theme");if(t==="light"||t==="auto"){document.documentElement.dataset.theme=t;if(t==="light"||matchMedia("(prefers-color-scheme: light)").matches)document.addEventListener("DOMContentLoaded",function(){var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content","#f3f5f9")})}}catch(e){}`;
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (

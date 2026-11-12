@@ -14,7 +14,7 @@ export function duration(seconds: number): string {
   const m = Math.round(seconds / 60);
   if (m < 1) return "under a minute";
   if (m < 60) return `${m} min`;
-  return `${Math.floor(m / 60)} h ${m % 60} m`;
+  return m % 60 === 0 ? `${m / 60} h` : `${Math.floor(m / 60)} h ${m % 60} m`;
 }
 export function when(iso: string): string {
   const d = new Date(iso);
@@ -39,4 +39,7 @@ export function localIso(iso: string): string {
   const d = new Date(iso);
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+export function shortDay(iso: string): string {
+  return new Date(iso).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
 }

@@ -66,6 +66,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [overdue, setOverdue] = useState(0);
   const [attempt, setAttempt] = useState(0);
   const [splashDone, setSplashDone] = useState(false);
+  // The notifications warning can be put away for this visit; it returns the next time the app is opened.
+  const [pushDismissed, setPushDismissed] = useState(false);
 
   // The opening animation plays in full once per launch. After that, loading shows it only for as long as loading takes.
   useEffect(() => {
@@ -189,10 +191,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <span>{overdue} overdue reminder{overdue === 1 ? "" : "s"}</span><b>View</b>
           </Link>
         )}
-        {pushMessage[push] && (
+        {pushMessage[push] && !pushDismissed && (
           <div className="banner" data-testid="push-banner">
             <span>{pushMessage[push]}</span>
-            {push === "off" && <button className="btn small" onClick={async () => setPush(await enablePush())}>Turn on</button>}
+            <span className="row">
+              {push === "off" && <button className="btn small" onClick={async () => setPush(await enablePush())}>Turn on</button>}
+              <button className="btn small secondary" onClick={() => setPushDismissed(true)} aria-label="Hide this notice">✕</button>
+            </span>
           </div>
         )}
         {children}

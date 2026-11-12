@@ -75,8 +75,8 @@ export default function RecordPage() {
             </p>
             <div className="banner">
               {paused
-                ? "Paused. Tap the blue microphone to carry on, or the red square to finish."
-                : "Keep this screen open. Locking the phone or switching apps stops the recording."}
+                ? "Paused. Tap the microphone to carry on, or the red square to finish."
+                : "Tap the microphone to pause. Keep this screen open: locking the phone or switching apps stops the recording."}
               {!paused && view.wakeLock !== "on" && " The screen may dim: tap it now and then."}
             </div>
             {view.notice && <div className="banner rec">{view.notice}</div>}
