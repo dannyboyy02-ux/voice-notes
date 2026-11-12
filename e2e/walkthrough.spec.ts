@@ -224,6 +224,20 @@ test("walk through every screen with realistic data", async ({ page }) => {
   await page.getByTestId("trash-link").click();
   await expect(page.getByText("Trash is empty.")).toBeVisible();
   await shot(page, "13-trash");
+  await page.getByRole("link", { name: "Back" }).click();
+  await expect(page.getByTestId("account-email")).toBeVisible();
+
+  // Phone check sits outside the tab bar, so it must offer its own way back
+  await page.getByRole("link", { name: "Phone check" }).click();
+  await expect(page.getByRole("heading", { name: "Phone check" })).toBeVisible();
+  await shot(page, "14-phone-check");
+  await page.getByTestId("back").click();
+  await expect(page.getByTestId("account-email")).toBeVisible();
+
+  // Same for the notification-keys page
+  await page.goto("/keys");
+  await page.getByTestId("back").click();
+  await expect(page.getByRole("link", { name: "Settings" })).toBeVisible();
 
   expect(errors, `browser errors: ${errors.join(" | ")}`).toEqual([]);
 });
