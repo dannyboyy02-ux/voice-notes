@@ -10,8 +10,8 @@ import type { Folder, Recording } from "@/lib/types";
 import { useApp } from "./AppShell";
 import SwipeToDelete from "./SwipeToDelete";
 
-export type ConversationRow = Pick<Recording, "id" | "title" | "summary" | "started_at" | "duration_ms" | "status" | "part" | "storage_path"> & { folder_id?: string | null };
-export const CONVERSATION_COLUMNS = "id, title, summary, started_at, duration_ms, status, part, storage_path";
+export type ConversationRow = Pick<Recording, "id" | "title" | "summary" | "started_at" | "duration_ms" | "status" | "part" | "storage_path"> & { speakers?: number | null; folder_id?: string | null };
+export const CONVERSATION_COLUMNS = "id, title, summary, started_at, duration_ms, status, part, storage_path, speakers";
 
 const dateLabel = (iso: string) => new Date(iso).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
 
@@ -27,9 +27,10 @@ function saveBlob(blob: Blob, name: string) {
 }
 
 /**
- * A list of conversations. Swipe a row left to delete it; press and hold it for Share, Move to folder and Export.
+ * A list of conversations. Swipe a row left to delete it; press and hold it for a closer look at it
+ * (when, how long, how many speakers, its summary) with Share, Move to folder, Export and Delete beneath.
  */
-export default function ConversationList({ rows, testid, showStatus = false, onChanged }: { rows: ConversationRow[]; testid: string; showStatus?: boolean; onChanged: () => void | Promise<void> }) {
+export default function ConversationList({ rows, testid, showStatus = false, showFolder = true, onChanged }: { rows: ConversationRow[]; testid: string; showStatus?: boolean; /** False inside a folder, where naming the folder on every row says nothing. */ showFolder?: boolean; onChanged: () => void | Promise<void> }) {
   const { db, trash, folders, email } = useApp();
   const [folderList, setFolderList] = useState<Folder[]>([]);
   const [open, setOpen] = useState<ConversationRow | null>(null);
@@ -145,12 +146,13 @@ export default function ConversationList({ rows, testid, showStatus = false, onC
   };
 
   const folderName = (id: string | null | undefined) => (id ? folderList.find((f) => f.id === id)?.name : undefined);
+  const folderLabel = (id: string | null | undefined) => (showFolder ? folderName(id) : undefined);
 
   return (
     <>
       {rows.map((r) => {
         const title = r.title ?? "Untitled recording";
-        const inFolder = folderName(r.folder_id);
+        const inFolder = folderLabel(r.folder_id);
         return (
           <SwipeToDelete key={r.id} label={r.title ?? "recording"} onLongPress={() => show(r)} onDelete={() => remove(r)}>
             <Link className="item list-link" href={`/notes/${r.id}`} data-testid={testid} draggable={false}>
@@ -175,9 +177,19 @@ export default function ConversationList({ rows, testid, showStatus = false, onC
       {open && (
         <div className="sheet-back" onClick={close} data-testid="sheet-back">
           <div className="sheet" role="dialog" aria-modal="true" aria-label={`Options for ${open.title ?? "recording"}`} onClick={(e) => e.stopPropagation()} data-testid="sheet">
-            <div className="sheet-title">
-              <b className="two-line">{open.title ?? "Untitled recording"}</b>
-              <span className="small muted">{dateLabel(open.started_at)}</span>
+            <div className="card peek" data-testid="peek">
+              <b className="two-line">{open.title ?? "Untitled recording"}{open.part > 1 ? ` (part ${open.part})` : ""}</b>
+              <span className="small muted">
+                {dateLabel(open.started_at)}
+                {open.duration_ms ? ` · ${duration(open.duration_ms / 1000)}` : ""}
+                {open.speakers ? ` · ${open.speakers} speaker${open.speakers === 1 ? "" : "s"}` : ""}
+                {folderLabel(open.folder_id) ? ` · ${folderLabel(open.folder_id)}` : ""}
+              </span>
+              {open.summary ? (
+                <p className="small peek-summary">{open.summary}</p>
+              ) : (
+                <p className="small muted">{open.status === "ready" ? "No summary was written for this one." : `${STATUS_LABEL[open.status]}. Its summary appears here once it is ready.`}</p>
+              )}
             </div>
             {message && <div className="banner" data-testid="sheet-message">{message}</div>}
             {pending ? (

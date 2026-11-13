@@ -188,3 +188,18 @@ details.note > summary { cursor: pointer; color: var(--accent); padding: 2px 0 4
 /* The shadow fills the sliver between the bar and the tab bar, so a long chat never shows through beneath it. */
 .chat-bar { position: sticky; bottom: calc(var(--foot) + env(safe-area-inset-bottom, 0px)); margin-top: auto; padding: 8px 0; background: var(--bg); box-shadow: 0 16px 0 var(--bg); }
 .zeus-mark { display: flex; align-items: center; line-height: 0; }
+/* A folder's top row: back, the name (cut short with … when long), then its three round buttons. */
+.folder-head { display: flex; align-items: center; gap: 8px; }
+.folder-head h1 { flex: 1; min-width: 0; font-size: 1.2rem; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.folder-head .icon-btn { width: 40px; height: 40px; }
+.folder-head .row { gap: 6px; }
+a.icon-btn { text-decoration: none; }
+/* The card at the top of the press-and-hold menu: what the conversation is, before choosing what to do with it. */
+.peek { gap: 6px; }
+.peek-summary { display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+/* Rows with a tick box, in the Add conversations picker. */
+.group > label.line.pick { justify-content: flex-start; align-items: flex-start; cursor: pointer; }
+.line.pick input[type="checkbox"] { width: 22px; height: 22px; margin-top: 2px; flex: none; }
+.line.pick > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+/* Buttons that stay in reach at the foot of a long sheet. */
+.sheet-foot { position: sticky; bottom: calc(-16px - env(safe-area-inset-bottom, 0px)); background: var(--bg); padding: 8px 0 calc(16px + env(safe-area-inset-bottom, 0px)); margin-bottom: calc(-16px - env(safe-area-inset-bottom, 0px)); }

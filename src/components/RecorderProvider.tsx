@@ -22,8 +22,8 @@ type RecorderApi = {
   progress: Record<string, number>;
   upload: (id: string) => Promise<void>;
   refreshLocal: () => Promise<void>;
-  /** Takes an audio file made elsewhere and sends it through the same upload and processing. Returns why not, if it cannot. */
-  importFile: (file: File) => Promise<string | null>;
+  /** Takes an audio file made elsewhere and sends it through the same upload and processing. Returns why not, if it cannot. With a folder, the recording is filed there. */
+  importFile: (file: File, folderId?: string) => Promise<string | null>;
   /** Goes up whenever an upload finishes or fails, so screens know to reload their lists. */
   changed: number;
 };
@@ -76,7 +76,7 @@ export default function RecorderProvider({ userId, children }: { userId: string;
     }
   }, [refreshLocal]);
 
-  const importFile = useCallback(async (file: File): Promise<string | null> => {
+  const importFile = useCallback(async (file: File, folderId?: string): Promise<string | null> => {
     const problem = importProblem(file);
     if (problem) return problem;
     try {
@@ -87,6 +87,7 @@ export default function RecorderProvider({ userId, children }: { userId: string;
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, mimeType: audioKind(file.name, file.type)!,
         part: 1, bytes: 0, chunks: 0, lastChunkAt: Date.now(), durationMs: await audioDurationMs(file),
         state: "stopped", note: `Imported: ${file.name}`,
+        ...(folderId ? { folderId } : {}),
       });
       await putChunk(id, 0, file);
       await refreshLocal();

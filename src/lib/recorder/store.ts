@@ -15,6 +15,8 @@ export type LocalSession = {
   durationMs: number | null;
   state: LocalState;
   note?: string;
+  /** Set when a file is imported from inside a folder: the recording is filed there once uploaded. */
+  folderId?: string;
 };
 
 const DB = "voice-notes";

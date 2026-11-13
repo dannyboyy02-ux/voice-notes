@@ -304,7 +304,8 @@ $$;
 revoke all on function public.server_status() from public, anon;
 grant execute on function public.server_status() to authenticated;
 
-create or replace function public.search_notes(q text)
+-- Search. Given a folder, only that folder's conversations are searched; given null, everything is.
+create or replace function public.search_notes(q text, folder uuid)
 returns table (recording_id uuid, title text, started_at timestamptz, kind text, at_ms integer, snippet text, rank real)
 language sql stable security invoker set search_path = '' as $$
   with query as (select websearch_to_tsquery('english', q) as tsq)
@@ -313,22 +314,35 @@ language sql stable security invoker set search_path = '' as $$
            ts_headline('english', coalesce(r.title, '') || '. ' || coalesce(r.summary, ''), query.tsq,
                        'MaxWords=24,MinWords=8,StartSel=[[,StopSel=]]'),
            ts_rank(r.fts, query.tsq) * 2
-      from public.recordings r, query where r.fts @@ query.tsq and not r.is_test and r.deleted_at is null
+      from public.recordings r, query
+     where r.fts @@ query.tsq and not r.is_test and r.deleted_at is null
+       and (search_notes.folder is null or r.folder_id = search_notes.folder)
     union all
     select r.id, r.title, r.started_at, 'transcript'::text, u.start_ms,
            ts_headline('english', u.text, query.tsq, 'MaxWords=24,MinWords=8,StartSel=[[,StopSel=]]'),
            ts_rank(u.fts, query.tsq)
       from public.utterances u join public.recordings r on r.id = u.recording_id, query
      where u.fts @@ query.tsq and not r.is_test and r.deleted_at is null
+       and (search_notes.folder is null or r.folder_id = search_notes.folder)
     union all
     select r.id, r.title, r.started_at, i.type, i.at_ms,
            ts_headline('english', i.text, query.tsq, 'MaxWords=24,MinWords=8,StartSel=[[,StopSel=]]'),
            ts_rank(i.fts, query.tsq) * 1.5
       from public.items i join public.recordings r on r.id = i.recording_id, query
      where i.fts @@ query.tsq and not i.is_test and r.deleted_at is null
+       and (search_notes.folder is null or r.folder_id = search_notes.folder)
   ) hits (recording_id, title, started_at, kind, at_ms, snippet, rank)
   order by rank desc, started_at desc
   limit 50;
+$$;
+revoke all on function public.search_notes(text, uuid) from public, anon;
+grant execute on function public.search_notes(text, uuid) to authenticated;
+
+-- The one-argument form searches everything. Kept because the app calls it from Home.
+create or replace function public.search_notes(q text)
+returns table (recording_id uuid, title text, started_at timestamptz, kind text, at_ms integer, snippet text, rank real)
+language sql stable security invoker set search_path = '' as $$
+  select * from public.search_notes(q, null::uuid);
 $$;
 revoke all on function public.search_notes(text) from public, anon;
 grant execute on function public.search_notes(text) to authenticated;

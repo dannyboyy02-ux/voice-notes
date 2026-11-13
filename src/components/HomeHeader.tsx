@@ -3,14 +3,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { ImportIcon, SearchIcon } from "./icons";
 import ImportButton from "./ImportButton";
 import SearchScreen from "./SearchScreen";
 
-const icon = { width: 22, height: 22, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
-
 /**
- * The top of Home: a title, a magnifying glass that opens search, a plus that imports an audio file,
- * and the two headers to choose between.
+ * The top of Home: a title, a magnifying glass that opens search, a cloud with an up arrow that imports
+ * an audio file, and the two headers to choose between.
  */
 export default function HomeHeader() {
   const pathname = usePathname();
@@ -23,10 +22,10 @@ export default function HomeHeader() {
         <h1>Home</h1>
         <div className="row">
           <button className="icon-btn" onClick={() => setSearching(true)} aria-label="Search" data-testid="search-button">
-            <svg {...icon}><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.8-3.8" /></svg>
+            <SearchIcon />
           </button>
           <ImportButton className="icon-btn" place={onActions ? "under Conversations" : "below"} onMessage={(text, ok) => setNotice({ text, ok })}>
-            <svg {...icon}><path d="M12 5v14M5 12h14" /></svg>
+            <ImportIcon />
           </ImportButton>
         </div>
       </div>
