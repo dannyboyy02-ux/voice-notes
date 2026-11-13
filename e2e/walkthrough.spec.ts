@@ -35,7 +35,7 @@ function seed() {
     { recording_id: REC.dock, idx: 1, speaker: "B", start_ms: 417000, end_ms: 421000, text: "Great. Then I can start the 16th." },
     { recording_id: REC.dock, idx: 2, speaker: "A", start_ms: 655000, end_ms: 661000, text: "Remind me Thursday morning to call the county about the permit." },
   ];
-  return { recordings, items, utterances, folders: [] as Row[], settings: { model_mode: "auto", apple_reminders: true } as Row, searches: [] as Row[], oldSearch: false, offline: false, dropped: {} as Record<string, number> };
+  return { recordings, items, utterances, folders: [] as Row[], settings: { model_mode: "auto", apple_reminders: true } as Row, searches: [] as Row[], oldSearch: false, offline: false, dropped: {} as Record<string, number>, zeusAsked: [] as Row[] };
 }
 
 async function mockBackend(page: Page) {
@@ -47,7 +47,7 @@ async function mockBackend(page: Page) {
   await page.route("**/api/sync", (r) => json(r, { ok: true, userId: USER_ID, missing: [], databaseReady: true }));
   await page.route("**/api/kick", (r) => json(r, { accepted: true }, 202));
   await page.route("**/api/recordings/*/action", (r) => json(r, { ok: true }));
-  await page.route("**/api/zeus", (r) => r.fulfill({ status: 200, headers: { "content-type": "text/plain; charset=utf-8" }, body: "Two things are outstanding.\n\n1. Email Sam the property survey.\n2. Call the county about the permit, due tomorrow morning.\n\n✓ Added reminder: Call Sam (Fri 13 Nov, 3:00 PM)\n" }));
+  await page.route("**/api/zeus", (r) => { db.zeusAsked.push(r.request().postDataJSON() as Row); return r.fulfill({ status: 200, headers: { "content-type": "text/plain; charset=utf-8" }, body: "Two things are outstanding.\n\n1. Email Sam the property survey.\n2. Call the county about the permit, due tomorrow morning.\n\n✓ Added reminder: Call Sam (Fri 13 Nov, 3:00 PM)\n" }); });
 
   await page.route(`${SUPABASE}/**`, async (route) => {
     const req = route.request();
@@ -152,6 +152,8 @@ test("walk through every screen with realistic data", async ({ page }) => {
   page.on("pageerror", (e) => errors.push(e.message));
   page.on("console", (m) => { if (m.type() === "error" && !/Failed to load resource|favicon/.test(m.text())) errors.push(m.text()); });
   const db = await mockBackend(page);
+  // Lets the walk read back what "Copy transcript" put on the clipboard.
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
 
   // Sign in
   await page.goto("/");
@@ -195,12 +197,55 @@ test("walk through every screen with realistic data", async ({ page }) => {
   await expect(page.getByTestId("hit").first()).not.toContainText("/2026");
   await shot(page, "04-search");
 
-  // A search hit opens the recording at that moment
+  // A search hit opens the recording at that moment, on its Transcript tab
   await page.getByTestId("hit").first().click();
   await expect(page.getByTestId("note-title")).toHaveText("Call with Sam about the dock");
+  await expect(page.getByTestId("tab-transcript")).toHaveAttribute("aria-selected", "true");
   await expect(page.getByText("Speaker B")).toBeVisible();
+  await shot(page, "05a-note-transcript");
+
+  // Summary tab: the summary, its to-dos and reminders, the audio and what the reading cost
+  await page.getByTestId("tab-summary").click();
+  await expect(page.getByTestId("note-summary")).toContainText("Sam can repair the dock the week of the 16th.");
+  await expect(page.getByTestId("transcript")).toHaveCount(0);
+  await expect(page.getByText("Email Sam the property survey")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Play audio" })).toBeVisible();
   await expect(page.getByTestId("cost")).toContainText("claude-opus-5-5");
   await shot(page, "05-note");
+
+  // Zeus tab: a chat about this conversation alone, with the question bar at the foot of the screen
+  await page.getByTestId("tab-zeus").click();
+  await expect(page.getByTestId("zeus-scope")).toHaveCount(0);
+  const noteBar = (await page.getByTestId("chat-bar").boundingBox())!;
+  const noteMic = (await page.getByTestId("record-button").boundingBox())!;
+  expect(noteBar.y + noteBar.height).toBeLessThanOrEqual(noteMic.y);
+  expect(noteMic.y - (noteBar.y + noteBar.height)).toBeLessThan(24);
+  await page.getByRole("button", { name: "Who agreed to do what?" }).click();
+  await expect(page.getByTestId("turn-assistant")).toContainText("Two things are outstanding.");
+  expect(db.zeusAsked.at(-1)).toMatchObject({ recordingId: REC.dock });
+  await shot(page, "05b-note-zeus");
+  // Leaving the tab and coming back picks the chat up where it was.
+  await page.getByTestId("tab-summary").click();
+  await expect(page.getByTestId("zeus-chat")).toHaveCount(0);
+  await page.getByTestId("tab-zeus").click();
+  await expect(page.getByTestId("turn-user")).toHaveText(/Who agreed to do what\?/);
+  await expect(page.getByTestId("turn-assistant")).toHaveCount(1);
+
+  // Three dots: the same choices as press-and-hold, on the conversation's own screen
+  await page.getByRole("button", { name: "Conversation options" }).click();
+  await expect(page.getByTestId("peek")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Move to folder/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Move to Trash/ })).toBeVisible();
+  await shot(page, "05c-note-menu");
+  await page.getByRole("button", { name: "Copy transcript" }).click();
+  await expect(page.getByTestId("sheet-message")).toContainText("Transcript copied");
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("[06:52] Speaker A: I'll send you the survey tonight.");
+  await page.getByRole("button", { name: "Close" }).click();
+  await expect(page.getByTestId("sheet")).toHaveCount(0);
+
+  // Back returns to where the conversation was opened from
+  await page.getByRole("button", { name: "Back" }).click();
+  await expect(page.getByRole("link", { name: "Conversations" })).toHaveAttribute("aria-current", "page");
 
   // A moment that falls inside a line, not on its start, still lands on that line
   await page.goto(`/notes/${REC.dock}?t=414500`);

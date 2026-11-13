@@ -292,11 +292,32 @@ test("swiping a recording left moves it to Trash, where it can be restored", asy
   await expect(page.getByTestId("trashed")).toHaveCount(0);
   expect(mock.rows[0].deleted_at).toBeNull();
 
-  // From another screen, the microphone only opens the Record screen; it does not start recording.
-  await page.getByTestId("record-button").click();
-  await expect(page.getByTestId("recent")).toHaveCount(1);
+  // From another screen, one tap on the microphone starts recording and brings up the Record screen.
   await expect(page.getByTestId("record-button")).toHaveAttribute("aria-label", "Start recording");
-  await expect(page.getByTestId("stop-button")).toHaveCount(0);
+  await page.getByTestId("record-button").click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByTestId("record-button")).toHaveAttribute("aria-label", "Pause recording");
+  await expect(page.getByTestId("bar-timer")).toContainText("Recording");
+
+  // A stray tap: stopped at once, it is not kept, not uploaded, and the screen says so.
+  const before = mock.rows.length;
+  await page.getByTestId("stop-button").click();
+  await expect(page.getByTestId("rec-notice")).toContainText("under 2 seconds");
+  await expect(page.getByTestId("record-button")).toHaveAttribute("aria-label", "Start recording");
+  await expect(page.getByTestId("local-session")).toHaveCount(0);
+  await page.waitForTimeout(1500);
+  expect(mock.rows.length).toBe(before);
+  const left = await page.evaluate(() => new Promise<number>((resolve, reject) => {
+    const open = indexedDB.open("voice-notes");
+    open.onerror = () => reject(open.error);
+    open.onsuccess = () => {
+      const tx = open.result.transaction(["sessions", "chunks"]);
+      const sessions = tx.objectStore("sessions").count();
+      const chunks = tx.objectStore("chunks").count();
+      tx.oncomplete = () => resolve(sessions.result + chunks.result);
+    };
+  }));
+  expect(left).toBe(0);
 });
 
 test("the look is dark by default and can be switched to light", async ({ page }) => {

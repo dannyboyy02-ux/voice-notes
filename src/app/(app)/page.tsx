@@ -10,7 +10,7 @@ import { deleteSession, patchSession, type LocalSession } from "@/lib/recorder/s
 
 export default function RecordPage() {
   const { db, trash, folders } = useApp();
-  const { view, recording, paused, engaged, error, local, progress, upload, refreshLocal, changed } = useRecorder();
+  const { view, recording, paused, engaged, error, notice, local, progress, upload, refreshLocal, changed } = useRecorder();
   const recorded = useRecordedMs();
   const [recent, setRecent] = useState<ConversationRow[]>([]);
 
@@ -78,6 +78,7 @@ export default function RecordPage() {
           </>
         ) : null}
         {error && <div className="banner rec">{error}</div>}
+        {notice && !recording && <div className="banner" data-testid="rec-notice">{notice}</div>}
       </section>
 
       {pending.length > 0 && (
