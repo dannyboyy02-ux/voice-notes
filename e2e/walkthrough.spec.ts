@@ -35,7 +35,7 @@ function seed() {
     { recording_id: REC.dock, idx: 1, speaker: "B", start_ms: 417000, end_ms: 421000, text: "Great. Then I can start the 16th." },
     { recording_id: REC.dock, idx: 2, speaker: "A", start_ms: 655000, end_ms: 661000, text: "Remind me Thursday morning to call the county about the permit." },
   ];
-  return { recordings, items, utterances, folders: [] as Row[], settings: { model_mode: "auto", apple_reminders: true } as Row, searches: [] as Row[], oldSearch: false, offline: false, dropped: {} as Record<string, number>, zeusAsked: [] as Row[] };
+  return { recordings, items, utterances, folders: [] as Row[], settings: { model_mode: "auto", apple_reminders: true } as Row, searches: [] as Row[], oldSearch: false, offline: false, dropped: {} as Record<string, number>, zeusAsked: [] as Row[], actions: [] as Row[] };
 }
 
 async function mockBackend(page: Page) {
@@ -46,7 +46,10 @@ async function mockBackend(page: Page) {
   await page.route("**/api/config", (r) => json(r, { supabaseUrl: SUPABASE, supabaseAnonKey: "anon-key", vapidPublicKey: null, missing: [] }));
   await page.route("**/api/sync", (r) => json(r, { ok: true, userId: USER_ID, missing: [], databaseReady: true }));
   await page.route("**/api/kick", (r) => json(r, { accepted: true }, 202));
-  await page.route("**/api/recordings/*/action", (r) => json(r, { ok: true }));
+  await page.route("**/api/recordings/*/action", (r) => {
+    db.actions.push({ id: new URL(r.request().url()).pathname.split("/")[3], ...(r.request().postDataJSON() as Row) });
+    return json(r, { ok: true });
+  });
   await page.route("**/api/zeus", (r) => { db.zeusAsked.push(r.request().postDataJSON() as Row); return r.fulfill({ status: 200, headers: { "content-type": "text/plain; charset=utf-8" }, body: "Two things are outstanding.\n\n1. Email Sam the property survey.\n2. Call the county about the permit, due tomorrow morning.\n\n✓ Added reminder: Call Sam (Fri 13 Nov, 3:00 PM)\n" }); });
 
   await page.route(`${SUPABASE}/**`, async (route) => {
@@ -213,7 +216,20 @@ test("walk through every screen with realistic data", async ({ page }) => {
   // No model, token or cost line under the summary, and no back button at the top.
   await expect(page.getByText(/Read by|tokens in/)).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Back" })).toHaveCount(0);
+  // Read by the best model already, so there is nothing to redo.
+  await expect(page.getByTestId("redo")).toHaveCount(0);
   await shot(page, "05-note");
+
+  // Read by the cheaper model: Redo is offered, and asks for the best model to read it again
+  const dockRow = db.recordings.find((r) => r.id === REC.dock)!;
+  dockRow.model_used = "claude-haiku-5-5";
+  await page.reload();
+  await page.getByTestId("tab-summary").click();
+  await expect(page.getByTestId("redo")).toHaveText("Redo");
+  await page.getByTestId("redo").click();
+  await expect(page.getByText("Redoing with the best model.")).toBeVisible();
+  expect(db.actions.at(-1)).toEqual({ id: REC.dock, action: "redo" });
+  dockRow.model_used = "claude-opus-5-5";
 
   // Zeus tab: shown as the lightning bolt, named Zeus. A chat about this conversation alone, with the question bar at the foot.
   await expect(page.getByTestId("tab-zeus")).toHaveText("");
