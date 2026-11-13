@@ -19,5 +19,8 @@ export const MoreIcon = () => (
   </svg>
 );
 
+/** A plus: make a new one. */
+export const PlusIcon = () => <svg {...base}><path d="M12 5v14M5 12h14" /></svg>;
+
 /** A chevron pointing left: go back. */
 export const BackIcon = () => <svg {...base}><path d="M15 5l-7 7 7 7" /></svg>;
