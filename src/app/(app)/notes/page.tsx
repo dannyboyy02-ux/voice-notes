@@ -42,7 +42,6 @@ export default function NotesPage() {
         <p className="muted">No recordings yet.</p>
       ) : (
         <section className="card">
-          <div className="small muted">Swipe left to delete · press and hold for share, folders and export</div>
           <ConversationList rows={recordings} testid="note" onChanged={load} />
         </section>
       )}

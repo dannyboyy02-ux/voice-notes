@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useApp } from "@/components/AppShell";
+import { PlusIcon } from "@/components/icons";
 import type { Folder } from "@/lib/types";
 
 export default function FoldersPage() {
@@ -10,7 +11,8 @@ export default function FoldersPage() {
   const [list, setList] = useState<Folder[] | null>(null);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [unfiled, setUnfiled] = useState(0);
-  const [name, setName] = useState("");
+  // null while the new-folder box is closed; the typed name while it is open.
+  const [name, setName] = useState<string | null>(null);
   const [problem, setProblem] = useState("");
 
   const load = useCallback(async () => {
@@ -36,12 +38,12 @@ export default function FoldersPage() {
 
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
-    const clean = name.trim();
+    const clean = (name ?? "").trim();
     if (!clean) return;
     setProblem("");
     const { error } = await db.from("folders").insert({ name: clean });
     if (error) return setProblem(`Could not create the folder: ${error.message}`);
-    setName("");
+    setName(null);
     await load();
   };
 
@@ -49,15 +51,23 @@ export default function FoldersPage() {
 
   return (
     <>
-      <h1>Folders</h1>
+      <div className="spread">
+        <h1>Folders</h1>
+        {folders && (
+          <button className="icon-btn" onClick={() => { setProblem(""); setName(""); }} aria-label="New folder" data-testid="new-folder"><PlusIcon /></button>
+        )}
+      </div>
       {!folders ? (
         <div className="banner">Folders are not switched on yet. Run the newest supabase/setup.sql in Supabase once, then reopen the app.</div>
       ) : (
         <>
-          <form className="row" onSubmit={create}>
-            <input className="input" placeholder="New folder name" maxLength={60} value={name} onChange={(e) => setName(e.target.value)} aria-label="New folder name" />
-            <button className="btn" disabled={!name.trim()}>Create</button>
-          </form>
+          {name !== null && (
+            <form className="row" onSubmit={create}>
+              <input className="input" placeholder="New folder name" maxLength={60} value={name} onChange={(e) => setName(e.target.value)} aria-label="New folder name" autoFocus />
+              <button className="btn" disabled={!name.trim()}>Create</button>
+              <button type="button" className="btn secondary" onClick={() => { setName(null); setProblem(""); }}>Cancel</button>
+            </form>
+          )}
           {problem && <div className="banner rec">{problem}</div>}
           {!list ? (
             <p className="muted">Loading…</p>
@@ -71,7 +81,6 @@ export default function FoldersPage() {
               <Link className="line" href="/notes"><span className="muted">Not in a folder</span><span className="muted">{count(unfiled)} ›</span></Link>
             </div>
           )}
-          <p className="small muted">To file a conversation, press and hold it in any list and choose Move to folder. Each conversation sits in one folder at a time.</p>
         </>
       )}
     </>

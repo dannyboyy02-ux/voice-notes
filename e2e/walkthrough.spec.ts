@@ -174,6 +174,8 @@ test("walk through every screen with realistic data", async ({ page }) => {
   await expect(page.getByTestId("note").nth(2)).toContainText("· 1 h");
   await expect(page.getByTestId("note").nth(2)).not.toContainText("0 m");
   await expect(page.getByTestId("note").first()).toContainText("Untitled recording");
+  // The list carries no how-to line above it.
+  await expect(page.getByText(/Swipe left to delete/)).toHaveCount(0);
   await shot(page, "03-notes");
   // Search lives behind the magnifying glass at the top right, beside the plus that imports audio.
   await expect(page.getByTestId("search")).toHaveCount(0);
@@ -401,6 +403,21 @@ test("walk through every screen with realistic data", async ({ page }) => {
   // Deleting a folder keeps its conversations.
   expect(db.recordings).toHaveLength(4);
   expect(db.recordings.every((r) => r.folder_id === null)).toBe(true);
+
+  // Folders tab: no how-to text and no name box until the plus at the top right is tapped
+  await expect(page.getByText(/To file a conversation/)).toHaveCount(0);
+  await expect(page.getByLabel("New folder name")).toHaveCount(0);
+  await page.getByRole("button", { name: "New folder" }).click();
+  await expect(page.getByLabel("New folder name")).toBeFocused();
+  await expect(page.getByRole("button", { name: "Create" })).toBeDisabled();
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.getByLabel("New folder name")).toHaveCount(0);
+  await page.getByRole("button", { name: "New folder" }).click();
+  await page.getByLabel("New folder name").fill("Taxes");
+  await shot(page, "18-new-folder");
+  await page.getByRole("button", { name: "Create" }).click();
+  await expect(page.getByLabel("New folder name")).toHaveCount(0);
+  await expect(page.getByTestId("folder")).toHaveText(/Taxes\s*0 conversations/);
 
   expect(errors, `browser errors: ${errors.join(" | ")}`).toEqual([]);
 });
