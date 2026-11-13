@@ -10,7 +10,7 @@ import RecorderProvider from "./RecorderProvider";
 import Splash from "./Splash";
 import TabBar from "./TabBar";
 
-type App = { db: SupabaseClient; userId: string; email: string; trash: boolean; folders: boolean; push: PushState; setPush: (p: PushState) => void; refreshOverdue: () => void };
+type App = { db: SupabaseClient; userId: string; email: string; trash: boolean; folders: boolean; push: PushState; /** Null means "could not tell": what was known stays. */ setPush: (p: PushState | null) => void; refreshOverdue: () => void };
 const Ctx = createContext<App | null>(null);
 export function useApp(): App {
   const app = useContext(Ctx);
@@ -62,7 +62,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [gate, setGate] = useState<Gate>({ kind: "loading" });
   const [db, setDb] = useState<SupabaseClient | null>(null);
-  const [push, setPush] = useState<PushState>("off");
+  // Starts as "checking", not "off": the notice about notifications must not show before the app has looked.
+  const [push, setPushState] = useState<PushState>("checking");
+  // A look that could not tell (no connection) changes nothing, so the notice never comes or goes on a guess.
+  const setPush = useCallback((next: PushState | null) => { if (next) setPushState(next); }, []);
   const [overdue, setOverdue] = useState(0);
   const [attempt, setAttempt] = useState(0);
   const [splashDone, setSplashDone] = useState(false);
@@ -118,7 +121,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       setPush(await checkPush());
     })();
     return () => { live = false; };
-  }, [attempt]);
+  }, [attempt, setPush]);
 
   const userId = gate.kind === "ready" ? gate.userId : null;
   const trash = gate.kind === "ready" ? gate.trash : false;
@@ -127,7 +130,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     // Counted the same way the To-dos screen lists them: reminders from a recording in Trash are left out.
     db.from("items").select(`id${trash ? ", recording:recordings(deleted_at)" : ""}`).eq("type", "reminder").eq("state", "active")
       .eq("is_test", false).lt("due_at", new Date().toISOString()).limit(200)
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        // A look-up that failed says nothing about reminders: the last count stays on screen.
+        if (error) return;
         const rows = (data ?? []) as unknown as { recording?: { deleted_at: string | null } | null }[];
         setOverdue(rows.filter((r) => !r.recording?.deleted_at).length);
       });
@@ -144,7 +149,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
-  }, [refreshOverdue, pathname]);
+  }, [refreshOverdue, pathname, setPush]);
 
   if (gate.kind === "loading" || !splashDone) return <Splash />;
   if (gate.kind === "setup") {
