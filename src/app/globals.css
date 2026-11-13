@@ -158,3 +158,18 @@ mark { background: var(--warn-soft); color: inherit; border-radius: 3px; }
 .avatar.small { width: 34px; height: 34px; font-size: 0.95rem; margin: 2px 0 0; flex: none; }
 details.note > summary { cursor: pointer; color: var(--accent); padding: 2px 0 4px; }
 .tabs .rec-tab:disabled { opacity: 0.5; }
+/* Home's two headers, as text tabs with an underline. */
+.headers { display: flex; gap: 22px; border-bottom: 1px solid var(--line); }
+.headers a { padding: 6px 0 9px; min-height: 40px; color: var(--muted); text-decoration: none; font-weight: 600; border-bottom: 3px solid transparent; margin-bottom: -1px; }
+.headers a.on { color: var(--ink); border-bottom-color: #2f6bff; }
+/* Press and hold opens the app's own menu, so the phone's link preview is switched off on rows. */
+.swipe-front a { -webkit-touch-callout: none; }
+.sheet-back { position: fixed; inset: 0; z-index: 40; background: rgba(0, 0, 0, 0.55); display: flex; align-items: flex-end; }
+.sheet { width: 100%; max-width: 640px; margin: 0 auto; background: var(--bg); border-radius: 18px 18px 0 0; border-top: 1px solid var(--line); padding: 16px 14px calc(16px + env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; gap: 12px; max-height: 85vh; overflow-y: auto; }
+.sheet-title { display: flex; flex-direction: column; gap: 2px; padding: 0 4px; }
+.group > button.line { width: 100%; background: none; border: 0; border-bottom: 1px solid var(--line); text-align: left; cursor: pointer; }
+.group > button.line:last-child { border-bottom: 0; }
+.group > button.line:disabled { opacity: 0.45; }
+.group > button.line.danger { color: var(--rec); }
+/* Conversation rows: avatar on the left, text beside it, status on the right. */
+.item.list-link { display: flex; }

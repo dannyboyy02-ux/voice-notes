@@ -14,7 +14,7 @@ type Row = Record<string, unknown>;
 const REC = { budget: "aaaaaaaa-0000-4000-8000-000000000001", dock: "aaaaaaaa-0000-4000-8000-000000000002", failed: "aaaaaaaa-0000-4000-8000-000000000003", busy: "aaaaaaaa-0000-4000-8000-000000000004" };
 
 function seed() {
-  const base = { user_id: USER_ID, time_zone: "America/New_York", part: 1, attempts: 0, failed_step: null, last_error: null, is_test: false, deleted_at: null, audio_deleted_at: null, bytes: 4_800_000, mime_type: "audio/mp4" };
+  const base = { user_id: USER_ID, time_zone: "America/New_York", part: 1, attempts: 0, failed_step: null, last_error: null, is_test: false, deleted_at: null, folder_id: null, audio_deleted_at: null, bytes: 4_800_000, mime_type: "audio/mp4" };
   const recordings: Row[] = [
     { ...base, id: REC.budget, status: "ready", title: "2027 Budget Review: Equipment and Fuel", summary: "The team refined budget and revenue projections for storage trailers, yard moves and fuel across sites, and agreed to recheck the fuel assumptions before Friday.", started_at: hours(-26), duration_ms: 3_600_000, storage_path: `${USER_ID}/${REC.budget}.m4a`, speakers: 3, model_used: "claude-opus-5-5", input_tokens: 21400, output_tokens: 5800, llm_cost_usd: 0.2016, stt_cost_usd: 0.23, ready_at: hours(-25) },
     { ...base, id: REC.dock, status: "ready", title: "Call with Sam about the dock", summary: "Sam can repair the dock the week of the 16th. You owe him the survey first.", started_at: hours(-50), duration_ms: 1_080_000, storage_path: `${USER_ID}/${REC.dock}.m4a`, speakers: 2, model_used: "claude-opus-5-5", input_tokens: 6100, output_tokens: 1500, llm_cost_usd: 0.0544, stt_cost_usd: 0.069, ready_at: hours(-49) },
@@ -35,7 +35,7 @@ function seed() {
     { recording_id: REC.dock, idx: 1, speaker: "B", start_ms: 417000, end_ms: 421000, text: "Great. Then I can start the 16th." },
     { recording_id: REC.dock, idx: 2, speaker: "A", start_ms: 655000, end_ms: 661000, text: "Remind me Thursday morning to call the county about the permit." },
   ];
-  return { recordings, items, utterances, settings: { model_mode: "auto", apple_reminders: true } as Row };
+  return { recordings, items, utterances, folders: [] as Row[], settings: { model_mode: "auto", apple_reminders: true } as Row };
 }
 
 async function mockBackend(page: Page) {
@@ -80,9 +80,24 @@ async function mockBackend(page: Page) {
       if (req.method() === "DELETE") { db.recordings = db.recordings.filter((r) => r.id !== eq("id")); return json(route, []); }
       let rows = db.recordings.slice().sort((a, b) => String(b.started_at).localeCompare(String(a.started_at)));
       if (eq("id")) rows = rows.filter((r) => r.id === eq("id"));
+      if (eq("folder_id")) rows = rows.filter((r) => r.folder_id === eq("folder_id"));
       if (q.get("deleted_at") === "is.null") rows = rows.filter((r) => !r.deleted_at);
       if (q.get("deleted_at") === "not.is.null") rows = rows.filter((r) => r.deleted_at);
       return send(rows);
+    }
+    if (url.pathname === "/rest/v1/folders") {
+      if (req.method() === "POST") {
+        const made = { id: `cccccccc-0000-4000-8000-00000000000${db.folders.length + 1}`, created_at: new Date().toISOString(), ...(req.postDataJSON() as Row) };
+        db.folders.push(made);
+        return json(route, wantsObject ? made : [made], 201);
+      }
+      if (req.method() === "PATCH") { db.folders = db.folders.map((f) => (f.id === eq("id") ? { ...f, ...(req.postDataJSON() as Row) } : f)); return json(route, []); }
+      if (req.method() === "DELETE") {
+        db.folders = db.folders.filter((f) => f.id !== eq("id"));
+        db.recordings = db.recordings.map((r) => (r.folder_id === eq("id") ? { ...r, folder_id: null } : r));
+        return json(route, []);
+      }
+      return send(db.folders.filter((f) => !eq("id") || f.id === eq("id")).sort((a, b) => String(a.name).localeCompare(String(b.name))));
     }
     if (url.pathname === "/rest/v1/items") {
       if (req.method() === "POST") { db.items.unshift({ id: `bbbbbbbb-0000-4000-8000-9${String(db.items.length).padStart(11, "0")}`, recording_id: null, due_at: null, said: null, quote: null, at_ms: null, needs_review: false, notified_at: null, apple_sent_at: null, created_at: new Date().toISOString(), ...(req.postDataJSON() as Row) }); return json(route, [], 201); }
@@ -143,8 +158,9 @@ test("walk through every screen with realistic data", async ({ page }) => {
   await expect(page.getByTestId("recent").nth(1)).toContainText("Failed");
   await shot(page, "02-record");
 
-  // Notes list and search
-  await page.getByRole("link", { name: "Notes" }).click();
+  // Home, on its Conversations header: the list and search
+  await page.getByRole("link", { name: "Home" }).click();
+  await expect(page.getByRole("link", { name: "Conversations" })).toHaveAttribute("aria-current", "page");
   await expect(page.getByTestId("note")).toHaveCount(4);
   await expect(page.getByTestId("note").nth(2)).toContainText("2027 Budget Review");
   await expect(page.getByTestId("note").nth(2)).toContainText("· 1 h");
@@ -182,7 +198,9 @@ test("walk through every screen with realistic data", async ({ page }) => {
   await shot(page, "06-note-failed");
 
   // To-dos: every section, with where each item came from
-  await page.getByRole("link", { name: "To-dos" }).click();
+  await page.getByRole("link", { name: "Home" }).click();
+  await page.getByRole("link", { name: "Action Items" }).click();
+  await expect(page.getByRole("link", { name: "Action Items" })).toHaveAttribute("aria-current", "page");
   await expect(page.getByText("Overdue")).toBeVisible();
   await expect(page.getByText("Needs a look")).toBeVisible();
   await expect(page.getByTestId("item-source").first()).toContainText("•");
@@ -214,7 +232,9 @@ test("walk through every screen with realistic data", async ({ page }) => {
   await shot(page, "10-settings");
   await page.getByTestId("theme").getByRole("button", { name: "Light" }).click();
   await shot(page, "11-settings-light");
-  await page.getByRole("link", { name: "To-dos" }).click();
+  await page.getByRole("link", { name: "Home" }).click();
+  await page.getByRole("link", { name: "Action Items" }).click();
+  await expect(page.getByRole("link", { name: "Action Items" })).toHaveAttribute("aria-current", "page");
   await expect(page.getByText("Overdue")).toBeVisible();
   await shot(page, "12-todos-light");
   await page.getByRole("link", { name: "Settings" }).click();
@@ -238,6 +258,76 @@ test("walk through every screen with realistic data", async ({ page }) => {
   await page.goto("/keys");
   await page.getByTestId("back").click();
   await expect(page.getByRole("link", { name: "Settings" })).toBeVisible();
+
+  // Press and hold a conversation: Share, Move to folder, Export
+  await page.getByRole("link", { name: "Home" }).click();
+  const dock = page.getByTestId("note").filter({ hasText: "Call with Sam about the dock" });
+  await dock.scrollIntoViewIfNeeded();
+  const box = (await dock.boundingBox())!;
+  await page.mouse.move(box.x + 60, box.y + 20);
+  await page.mouse.down();
+  await expect(page.getByTestId("sheet")).toBeVisible();
+  await page.mouse.up();
+  // Letting go after a hold must not open the conversation.
+  await expect(page).toHaveURL(/\/notes$/);
+  await expect(page.getByTestId("sheet")).toContainText("Call with Sam about the dock");
+  await shot(page, "15-hold-menu");
+
+  // Export the transcript as a text file
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: /Export transcript/ }).click();
+  const file = await download;
+  expect(file.suggestedFilename()).toBe("Call with Sam about the dock.txt");
+  const text = await (await import("node:fs/promises")).readFile(await file.path(), "utf8");
+  // It was ticked off earlier in this walk, and the export says so.
+  expect(text).toContain("[x] Email Sam the property survey");
+  expect(text).toMatch(/\[ \] Call the county about the permit \(\w{3}, \w{3} \d/);
+  expect(text).toContain("[06:52] Speaker A: I'll send you the survey tonight.");
+  await expect(page.getByTestId("sheet-message")).toContainText("Saved Call with Sam about the dock.txt");
+
+  // Share: this test browser has no share sheet, so the summary is copied and the app says so
+  await page.getByRole("button", { name: /^Share/ }).click();
+  await expect(page.getByTestId("sheet-message")).toContainText(/copied|would not allow copying/);
+
+  // Move to a new folder
+  await page.getByRole("button", { name: /Move to folder/ }).click();
+  await expect(page.getByTestId("folder-choices")).toContainText("No folders yet");
+  await page.getByLabel("New folder name").fill("Dock project");
+  await page.getByRole("button", { name: "Create" }).click();
+  await expect(page.getByTestId("sheet")).toHaveCount(0);
+  await expect(dock.getByTestId("row-folder")).toHaveText("Dock project");
+  expect(db.recordings.find((r) => r.id === REC.dock)?.folder_id).toBe(db.folders[0].id);
+
+  // A right-click (or the phone's own long-press event) opens the same menu; move a second one into the existing folder
+  await page.getByTestId("note").filter({ hasText: "2027 Budget Review" }).click({ button: "right" });
+  await page.getByRole("button", { name: /Move to folder/ }).click();
+  await page.getByTestId("folder-choices").getByRole("button", { name: "Dock project" }).click();
+  await expect(page.getByTestId("row-folder")).toHaveCount(2);
+
+  // Folders tab: the folder, its count, its conversations; rename; remove one; delete the folder
+  await page.getByRole("link", { name: "Folders" }).click();
+  await expect(page.getByTestId("folder")).toContainText("Dock project");
+  await expect(page.getByTestId("folder")).toContainText("2 conversations");
+  await shot(page, "16-folders");
+  await page.getByTestId("folder").click();
+  await expect(page.getByTestId("folder-name")).toHaveText("Dock project");
+  await expect(page.getByTestId("note")).toHaveCount(2);
+  await shot(page, "17-folder");
+  await page.getByRole("button", { name: "Rename" }).click();
+  await page.getByLabel("Folder name").fill("Dock repair");
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByTestId("folder-name")).toHaveText("Dock repair");
+  await page.getByTestId("note").filter({ hasText: "2027 Budget Review" }).click({ button: "right" });
+  await page.getByRole("button", { name: /Move to folder/ }).click();
+  await page.getByRole("button", { name: "Remove from folder" }).click();
+  await expect(page.getByTestId("note")).toHaveCount(1);
+  page.once("dialog", (d) => d.accept());
+  await page.getByRole("button", { name: "Delete folder" }).click();
+  await expect(page.getByRole("heading", { name: "Folders" })).toBeVisible();
+  await expect(page.getByTestId("folder")).toHaveCount(0);
+  // Deleting a folder keeps its conversations.
+  expect(db.recordings).toHaveLength(4);
+  expect(db.recordings.every((r) => r.folder_id === null)).toBe(true);
 
   expect(errors, `browser errors: ${errors.join(" | ")}`).toEqual([]);
 });

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useApp } from "@/components/AppShell";
+import HomeHeader from "@/components/HomeHeader";
 import { APPLE_MAX_ITEMS, appleRemindersLink } from "@/lib/apple";
 import { localIso, when } from "@/lib/format";
 import { ITEM_COLUMNS, type Item } from "@/lib/types";
@@ -64,7 +65,7 @@ export default function TodosPage() {
   };
   const toggle = (i: Item) => patch([i.id], { state: i.state === "done" ? "active" : "done" });
 
-  if (!items) return <p className="muted">Loading…</p>;
+  if (!items) return <><HomeHeader /><p className="muted">Loading…</p></>;
   const nowMs = Date.now();
   const endOfToday = new Date(); endOfToday.setHours(23, 59, 59, 999);
   const active = items.filter((i) => i.state === "active");
@@ -104,7 +105,7 @@ export default function TodosPage() {
 
   return (
     <>
-      <h1>To-dos</h1>
+      <HomeHeader />
       {sent.length > 0 && (
         <div className="banner ok" data-testid="apple-undo">
           <span>Sent {sent.length} to Apple Reminders.</span>

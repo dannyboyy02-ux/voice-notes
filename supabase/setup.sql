@@ -43,6 +43,15 @@ create table if not exists public.recordings (
 );
 -- Trash: a deleted recording is kept for 30 days so it can be restored.
 alter table public.recordings add column if not exists deleted_at timestamptz;
+-- Folders: a conversation can be filed in one folder. Deleting a folder leaves its conversations unfiled.
+create table if not exists public.folders (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  name text not null check (char_length(name) between 1 and 60),
+  created_at timestamptz not null default now()
+);
+alter table public.recordings add column if not exists folder_id uuid references public.folders (id) on delete set null;
+create index if not exists recordings_folder on public.recordings (folder_id);
 create index if not exists recordings_user_started on public.recordings (user_id, started_at desc);
 create index if not exists recordings_status on public.recordings (status);
 create index if not exists recordings_fts on public.recordings using gin (fts);
@@ -144,11 +153,12 @@ alter table public.push_subscriptions enable row level security;
 alter table public.settings enable row level security;
 alter table public.llm_runs enable row level security;
 alter table public.selftest_runs enable row level security;
+alter table public.folders enable row level security;
 
 do $$
 declare t text;
 begin
-  foreach t in array array['recordings', 'items', 'push_subscriptions', 'settings'] loop
+  foreach t in array array['recordings', 'items', 'push_subscriptions', 'settings', 'folders'] loop
     execute format('drop policy if exists own_rows on public.%I', t);
     execute format(
       'create policy own_rows on public.%I for all to authenticated using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()))', t);

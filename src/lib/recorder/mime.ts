@@ -20,6 +20,12 @@ export function extensionFor(mimeType: string): string {
   if (mimeType.startsWith("audio/mp4")) return "m4a";
   if (mimeType.startsWith("audio/webm")) return "webm";
   if (mimeType.startsWith("audio/ogg")) return "ogg";
+  // Formats that only arrive by import.
+  if (mimeType.startsWith("audio/mpeg")) return "mp3";
+  if (mimeType.startsWith("audio/wav")) return "wav";
+  if (mimeType.startsWith("audio/aac")) return "aac";
+  if (mimeType.startsWith("audio/flac")) return "flac";
+  if (mimeType.startsWith("video/mp4")) return "mp4";
   return "bin";
 }
 

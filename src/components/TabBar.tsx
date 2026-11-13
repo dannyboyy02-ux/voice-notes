@@ -8,8 +8,8 @@ import { useRecorder } from "./RecorderProvider";
 
 const icon = { width: 22, height: 22, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
 const TABS = [
-  { href: "/notes", label: "Notes", glyph: <svg {...icon}><path d="M6 3h9l4 4v14H6z" /><path d="M9 11h7M9 15h7" /></svg> },
-  { href: "/todos", label: "To-dos", glyph: <svg {...icon}><rect x="4" y="4" width="16" height="16" rx="3" /><path d="M8 12l3 3 5-6" /></svg> },
+  { href: "/notes", label: "Home", glyph: <svg {...icon}><path d="M4 11l8-7 8 7v9h-5v-6H9v6H4z" /></svg> },
+  { href: "/folders", label: "Folders", glyph: <svg {...icon}><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg> },
   null,
   { href: "/zeus", label: "Zeus", glyph: <svg {...icon}><path d="M13 3L6 13h5l-1 8 8-11h-5z" /></svg> },
   { href: "/settings", label: "Settings", glyph: <svg {...icon}><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></svg> },
@@ -85,7 +85,8 @@ export default function TabBar() {
             </button>
           );
         }
-        const on = pathname.startsWith(t.href) || (t.href === "/settings" && pathname.startsWith("/trash"));
+        // Home covers both of its headers: Conversations (/notes) and Action Items (/todos).
+        const on = pathname.startsWith(t.href) || (t.href === "/settings" && pathname.startsWith("/trash")) || (t.href === "/notes" && pathname.startsWith("/todos"));
         return <Link key={t.href} href={t.href} className={on ? "on" : ""}>{t.glyph}<span>{t.label}</span></Link>;
       })}
     </nav>

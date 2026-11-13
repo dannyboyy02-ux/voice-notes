@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useApp } from "@/components/AppShell";
-import SwipeToDelete from "@/components/SwipeToDelete";
-import { deleteRecording } from "@/lib/client/recordings";
-import { duration, shortDay, stamp } from "@/lib/format";
-import { STATUS_LABEL } from "@/lib/pipeline/steps";
+import ConversationList from "@/components/ConversationList";
+import HomeHeader from "@/components/HomeHeader";
+import ImportButton from "@/components/ImportButton";
+import { useRecorder } from "@/components/RecorderProvider";
+import { shortDay, stamp } from "@/lib/format";
 import type { Recording } from "@/lib/types";
 
 type Hit = { recording_id: string; title: string | null; started_at: string; kind: string; at_ms: number | null; snippet: string };
@@ -25,21 +26,33 @@ function Snippet({ text }: { text: string }) {
 }
 
 export default function NotesPage() {
-  const { db, trash, email } = useApp();
+  const { db, trash } = useApp();
+  const { changed } = useRecorder();
+  const [notice, setNotice] = useState<{ text: string; ok: boolean } | null>(null);
   const [recordings, setRecordings] = useState<Recording[] | null>(null);
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<Hit[] | null>(null);
 
+  const load = useCallback(async () => {
+    let q = db.from("recordings").select("*").eq("is_test", false);
+    if (trash) q = q.is("deleted_at", null);
+    const { data } = await q.order("started_at", { ascending: false }).limit(100);
+    setRecordings((data as Recording[]) ?? []);
+  }, [db, trash]);
+  // Reloads on open and whenever an upload (a recording or an import) finishes.
   useEffect(() => {
     let live = true;
-    (async () => {
-      let q = db.from("recordings").select("*").eq("is_test", false);
-      if (trash) q = q.is("deleted_at", null);
-      const { data } = await q.order("started_at", { ascending: false }).limit(100);
-      if (live) setRecordings((data as Recording[]) ?? []);
-    })();
+    (async () => { if (live) await load(); })();
     return () => { live = false; };
-  }, [db, trash]);
+  }, [load, changed]);
+
+  // While something is still being transcribed, keep its status fresh.
+  const busy = recordings?.some((r) => r.status !== "ready" && r.status !== "failed") ?? false;
+  useEffect(() => {
+    if (!busy) return;
+    const t = setInterval(load, 3000);
+    return () => clearInterval(t);
+  }, [busy, load]);
 
   useEffect(() => {
     const q = query.trim();
@@ -54,7 +67,8 @@ export default function NotesPage() {
 
   return (
     <>
-      <h1>Notes</h1>
+      <HomeHeader action={<ImportButton onMessage={(text, ok) => setNotice({ text, ok })} />} />
+      {notice && <div className={`banner ${notice.ok ? "ok" : "rec"}`} data-testid="import-message">{notice.text}</div>}
       <input className="input" type="search" placeholder="Search everything you have said" value={query} onChange={(e) => setQuery(e.target.value)} data-testid="search" />
       {hits ? (
         <section className="card">
@@ -75,28 +89,8 @@ export default function NotesPage() {
         <p className="muted">No recordings yet.</p>
       ) : (
         <section className="card">
-          {recordings.map((r) => (
-            <SwipeToDelete
-              key={r.id}
-              label={r.title ?? "recording"}
-              onDelete={async () => {
-                if (!(await deleteRecording(db, r, trash))) setRecordings((list) => list?.filter((x) => x.id !== r.id) ?? null);
-              }}
-            >
-              <Link className="item list-link" href={`/notes/${r.id}`} data-testid="note" draggable={false}>
-                <span className="avatar small" aria-hidden="true">{(email[0] ?? "V").toUpperCase()}</span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div>{r.title ?? "Untitled recording"}{r.part > 1 ? ` (part ${r.part})` : ""}</div>
-                  <div className="small muted">
-                    {new Date(r.started_at).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
-                    {r.duration_ms ? ` · ${duration(r.duration_ms / 1000)}` : ""}
-                  </div>
-                  {r.summary && <div className="small muted two-line">{r.summary}</div>}
-                </div>
-                {r.status !== "ready" && <span className={`pill ${r.status === "failed" ? "rec" : ""}`}>{STATUS_LABEL[r.status]}</span>}
-              </Link>
-            </SwipeToDelete>
-          ))}
+          <div className="small muted">Swipe left to delete · press and hold for share, folders and export</div>
+          <ConversationList rows={recordings} testid="note" onChanged={load} />
         </section>
       )}
     </>
