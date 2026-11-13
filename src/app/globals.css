@@ -162,6 +162,9 @@ details.note > summary { cursor: pointer; color: var(--accent); padding: 2px 0 4
 .headers { display: flex; gap: 22px; border-bottom: 1px solid var(--line); }
 .headers a { padding: 6px 0 9px; min-height: 40px; color: var(--muted); text-decoration: none; font-weight: 600; border-bottom: 3px solid transparent; margin-bottom: -1px; }
 .headers a.on { color: var(--ink); border-bottom-color: #2f6bff; }
+/* The same text tabs as buttons, for switching parts of one screen without leaving it. */
+.headers button { appearance: none; background: none; border: 0; border-bottom: 3px solid transparent; padding: 6px 0 9px; min-height: 40px; margin-bottom: -1px; color: var(--muted); font-weight: 600; cursor: pointer; }
+.headers button.on { color: var(--ink); border-bottom-color: #2f6bff; }
 /* Press and hold opens the app's own menu, so the phone's link preview is switched off on rows. */
 .swipe-front a { -webkit-touch-callout: none; }
 .sheet-back { position: fixed; inset: 0; z-index: 40; background: rgba(0, 0, 0, 0.55); display: flex; align-items: flex-end; }

@@ -36,7 +36,7 @@ export function useRecordedMs(): number {
 }
 
 /**
- * The bottom bar. Idle: four tabs around a blue microphone. Recording: the tabs give way to the timer,
+ * The bottom bar. Idle: four tabs around a blue microphone, which starts a recording with one tap. Recording: the tabs give way to the timer,
  * the microphone (tap to pause, tap again to resume) and a stop button to its right. A ring pulses
  * around the microphone while it is live and stops when paused.
  */
@@ -75,10 +75,11 @@ export default function TabBar() {
             <button
               key="record"
               className="rec-tab"
-              // From another screen the first tap only brings up the Record screen, so a stray tap cannot start a recording.
-              onClick={() => { if (pathname === "/") void start(); else router.push("/"); }}
+              // One tap starts recording from any screen and brings up the Record screen. A stray tap is
+              // harmless: a recording stopped within two seconds is not kept (see RecorderProvider).
+              onClick={() => { void start(); if (pathname !== "/") router.push("/"); }}
               disabled={engaged}
-              aria-label={engaged ? "Saving the last recording" : pathname === "/" ? "Start recording" : "Open the Record screen"}
+              aria-label={engaged ? "Saving the last recording" : "Start recording"}
               data-testid="record-button"
             >
               <Mic />

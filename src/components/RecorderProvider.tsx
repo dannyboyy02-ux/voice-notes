@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { Recorder, type RecorderView } from "@/lib/recorder/recorder";
 import { audioKind, importProblem, importStartedAt } from "@/lib/import";
-import { listSessions, putChunk, putSession, type LocalSession } from "@/lib/recorder/store";
+import { deleteSession, getSession, listSessions, putChunk, putSession, type LocalSession } from "@/lib/recorder/store";
 import { uploadSession } from "@/lib/recorder/upload";
 
 type RecorderApi = {
@@ -13,6 +13,8 @@ type RecorderApi = {
   /** True from the tap on the microphone until the recording has fully finished saving. */
   engaged: boolean;
   error: string;
+  /** Something worth saying that is not an error, such as a recording too short to keep. Cleared when the next one starts. */
+  notice: string;
   start: () => Promise<void>;
   pause: () => void;
   resume: () => void;
@@ -35,6 +37,12 @@ export function useRecorder(): RecorderApi {
   return api;
 }
 
+/**
+ * One tap on the microphone starts a recording, so a stray tap will sometimes start one. Anything stopped
+ * within this long cannot hold a spoken thought, and is dropped instead of becoming an empty conversation.
+ */
+export const SHORTEST_KEPT_MS = 2000;
+
 /** How long a picked audio file runs, if the phone can tell without decoding all of it. */
 function audioDurationMs(file: File): Promise<number | null> {
   return new Promise((resolve) => {
@@ -55,6 +63,7 @@ export default function RecorderProvider({ userId, children }: { userId: string;
   const uploading = useRef(new Set<string>());
   const [view, setView] = useState<RecorderView | null>(null);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [local, setLocal] = useState<LocalSession[]>([]);
   const [progress, setProgress] = useState<Record<string, number>>({});
   const [changed, setChanged] = useState(0);
@@ -116,6 +125,7 @@ export default function RecorderProvider({ userId, children }: { userId: string;
     // One recorder at a time: a tap while the last recording is still saving is ignored.
     if (recorder.current) return;
     setError("");
+    setNotice("");
     setEngaged(true);
     // Updates are accepted only from the recorder that is current, so a late message from a
     // recording that has just ended can never disturb the next one.
@@ -123,14 +133,25 @@ export default function RecorderProvider({ userId, children }: { userId: string;
       userId,
       (v) => { if (recorder.current === r) setView(v); },
       (ids) => {
-        if (!r.active && recorder.current === r) {
+        const ended = !r.active && recorder.current === r;
+        if (ended) {
           recorder.current = null;
           setEngaged(false);
         }
         void (async () => {
+          let keep = ids;
+          // The whole recording, in one part, over almost as soon as it began: a stray tap, not a thought.
+          if (ended && ids.length === 1) {
+            const s = await getSession(ids[0]).catch(() => undefined);
+            if (s && s.part === 1 && s.durationMs !== null && s.durationMs < SHORTEST_KEPT_MS) {
+              await deleteSession(s.id).catch(() => {});
+              keep = [];
+              setNotice("That was under 2 seconds, so nothing was saved.");
+            }
+          }
           await refreshLocal();
           setChanged((n) => n + 1);
-          for (const id of ids) void upload(id);
+          for (const id of keep) void upload(id);
         })();
       },
     );
@@ -152,7 +173,7 @@ export default function RecorderProvider({ userId, children }: { userId: string;
   const active = view?.recording ?? false;
 
   return (
-    <Ctx.Provider value={{ view, recording: active, paused: view?.paused ?? false, engaged, error, start, pause, resume, stop, local, progress, upload, refreshLocal, importFile, changed }}>
+    <Ctx.Provider value={{ view, recording: active, paused: view?.paused ?? false, engaged, error, notice, start, pause, resume, stop, local, progress, upload, refreshLocal, importFile, changed }}>
       {children}
     </Ctx.Provider>
   );
