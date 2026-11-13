@@ -17,8 +17,8 @@ type Tab = "summary" | "transcript" | "zeus";
 const TABS: { id: Tab; label: React.ReactNode; name: string }[] = [
   { id: "summary", label: "Summary", name: "Summary" },
   { id: "transcript", label: "Transcript", name: "Transcript" },
-  // The Zeus tab shows the app's lightning bolt; its name is still read out as "Zeus".
-  { id: "zeus", label: <Bolt size={28} />, name: ASSISTANT_NAME },
+  // The Zeus tab shows the app's lightning bolt, pulsing gently so the small mark is noticed; its name is still read out as "Zeus".
+  { id: "zeus", label: <Bolt size={28} className="bolt-pulse" />, name: ASSISTANT_NAME },
 ];
 
 /**

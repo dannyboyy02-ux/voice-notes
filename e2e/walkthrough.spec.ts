@@ -219,7 +219,11 @@ test("walk through every screen with realistic data", async ({ page }) => {
   await expect(page.getByTestId("tab-zeus")).toHaveText("");
   await expect(page.getByTestId("tab-zeus").locator("svg")).toHaveCount(1);
   await expect(page.getByRole("tab", { name: "Zeus" })).toBeVisible();
+  // It pulses while another tab is open, and holds still once it is the open tab.
+  const boltAnimation = () => page.getByTestId("tab-zeus").locator("svg").evaluate((el) => getComputedStyle(el).animationName);
+  expect(await boltAnimation()).toBe("bolt-pulse");
   await page.getByTestId("tab-zeus").click();
+  expect(await boltAnimation()).toBe("none");
   await expect(page.getByTestId("zeus-scope")).toHaveCount(0);
   const noteBar = (await page.getByTestId("chat-bar").boundingBox())!;
   const noteMic = (await page.getByTestId("record-button").boundingBox())!;
