@@ -3,8 +3,9 @@
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useApp } from "@/components/AppShell";
+import Bolt from "@/components/Bolt";
 import ConversationMenu from "@/components/ConversationMenu";
-import { BackIcon, MoreIcon } from "@/components/icons";
+import { MoreIcon } from "@/components/icons";
 import ZeusChat from "@/components/ZeusChat";
 import { api } from "@/lib/client/supabase";
 import { duration, stamp, when } from "@/lib/format";
@@ -13,16 +14,18 @@ import { STATUS_LABEL } from "@/lib/pipeline/steps";
 import { ITEM_COLUMNS, type Item, type Recording, type Utterance } from "@/lib/types";
 
 type Tab = "summary" | "transcript" | "zeus";
-const TABS: { id: Tab; label: string }[] = [
-  { id: "summary", label: "Summary" },
-  { id: "transcript", label: "Transcript" },
-  { id: "zeus", label: ASSISTANT_NAME },
+const TABS: { id: Tab; label: React.ReactNode; name: string }[] = [
+  { id: "summary", label: "Summary", name: "Summary" },
+  { id: "transcript", label: "Transcript", name: "Transcript" },
+  // The Zeus tab shows the app's lightning bolt, pulsing gently so the small mark is noticed; its name is still read out as "Zeus".
+  { id: "zeus", label: <Bolt size={28} className="bolt-pulse" />, name: ASSISTANT_NAME },
 ];
 
 /**
- * One conversation. Along the top: back, and three dots for Share, Copy transcript, Move to folder,
- * Export and Delete. Beneath the title, three tabs: Summary (with its to-dos, reminders and the audio),
- * Transcript, and Zeus (a chat about this conversation alone).
+ * One conversation. Along the top: when it was and how long, with three dots for Share, Copy transcript,
+ * Move to folder, Export and Delete. Beneath the title, three tabs: Summary (with its to-dos, reminders
+ * and the audio), Transcript, and Zeus (a chat about this conversation alone). There is no back button:
+ * the tab bar at the foot of the screen is the way out.
  */
 function Note() {
   const { db } = useApp();
@@ -73,12 +76,8 @@ function Note() {
     document.getElementById(`u-${nearest}`)?.scrollIntoView({ block: "center" });
   }, [jumpTo, lines, nearest, tab]);
 
-  // Back goes to wherever this was opened from; opened cold (from a notification, say) it goes to Home.
-  const back = () => { if (window.history.length > 1) router.back(); else router.push("/notes"); };
-  const backButton = <button className="icon-btn" onClick={back} aria-label="Back" data-testid="note-back"><BackIcon /></button>;
-
   if (rec === undefined) return <p className="muted">Loading…</p>;
-  if (rec === null) return <><div className="spread">{backButton}</div><p className="muted">This recording was not found.</p></>;
+  if (rec === null) return <p className="muted">This recording was not found.</p>;
 
   const act = async (action: "retry" | "redo") => {
     setMessage("");
@@ -115,19 +114,17 @@ function Note() {
         ))}
       </>
     );
-  const cost = Number(rec.llm_cost_usd ?? 0) + Number(rec.stt_cost_usd ?? 0);
   const speakerNames = [...new Set(lines.map((l) => l.speaker))];
   const waiting = processing ? "It appears here once the recording has been processed." : "There is none for this recording.";
 
   return (
     <>
       <div className="spread">
-        {backButton}
+        <div className="small muted" data-testid="note-when">
+          {new Date(rec.started_at).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
+          {rec.duration_ms ? ` · ${duration(rec.duration_ms / 1000)}` : ""}{rec.part > 1 ? ` · part ${rec.part}` : ""}
+        </div>
         <button className="icon-btn" onClick={() => setMenu(true)} aria-label="Conversation options" aria-haspopup="dialog" data-testid="note-options"><MoreIcon /></button>
-      </div>
-      <div className="small muted">
-        {new Date(rec.started_at).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
-        {rec.duration_ms ? ` · ${duration(rec.duration_ms / 1000)}` : ""}{rec.part > 1 ? ` · part ${rec.part}` : ""}
       </div>
       <h1 data-testid="note-title">{rec.title ?? "Untitled recording"}</h1>
       {rec.status !== "ready" && (
@@ -144,7 +141,7 @@ function Note() {
 
       <div className="headers" role="tablist" aria-label="Parts of this conversation">
         {TABS.map((t) => (
-          <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? "on" : ""} onClick={() => setTab(t.id)} data-testid={`tab-${t.id}`}>{t.label}</button>
+          <button key={t.id} role="tab" aria-selected={tab === t.id} aria-label={t.name} className={tab === t.id ? "on" : ""} onClick={() => setTab(t.id)} data-testid={`tab-${t.id}`}>{t.label}</button>
         ))}
       </div>
 
@@ -166,11 +163,6 @@ function Note() {
             {rec.audio_deleted_at && <p className="small muted">The audio was deleted 30 days after processing. The transcript stays.</p>}
             {(rec.status === "ready" || rec.status === "failed") && lines.length > 0 && (
               <button className="btn secondary" onClick={() => act("redo")} data-testid="redo">Redo with best model</button>
-            )}
-            {rec.model_used && (
-              <p className="small muted" data-testid="cost">
-                Read by {rec.model_used} · {rec.input_tokens ?? 0} tokens in, {rec.output_tokens ?? 0} out · about ${cost.toFixed(3)} for this recording
-              </p>
             )}
           </section>
         </>
