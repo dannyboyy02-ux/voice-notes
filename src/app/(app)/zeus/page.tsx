@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useApp } from "@/components/AppShell";
+import Bolt from "@/components/Bolt";
 import SwipeToDelete from "@/components/SwipeToDelete";
 import { chatTitle, loadChats, removeChat, saveChat, type SavedChat, type Turn } from "@/lib/client/chats";
 import { accessToken } from "@/lib/client/supabase";
@@ -12,6 +13,9 @@ import { ASSISTANT_NAME } from "@/lib/models";
 
 const STARTERS_ALL = ["What decisions and actions are outstanding?", "What should I prioritize this week?", "What reminders are coming up?"];
 const STARTERS_ONE = ["Summarize the key decisions", "Who agreed to do what?", "What was left unresolved?"];
+// One sample question sits in the question box as the hint for what to type.
+const GUIDE_ALL = STARTERS_ALL[1];
+const GUIDE_ONE = STARTERS_ONE[1];
 
 function Chat() {
   const { db, refreshOverdue } = useApp();
@@ -23,7 +27,6 @@ function Chat() {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [history, setHistory] = useState<SavedChat[] | null>(null);
-  const end = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!noteId) return;
@@ -35,7 +38,8 @@ function Chat() {
     return () => { live = false; };
   }, [db, noteId]);
 
-  useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [turns]);
+  // Keeps the newest words in view, just above the question bar at the foot of the screen.
+  useEffect(() => { if (turns.length) window.scrollTo(0, document.documentElement.scrollHeight); }, [turns]);
 
   const ask = async (question: string) => {
     const text = question.trim();
@@ -111,21 +115,21 @@ function Chat() {
   }
 
   return (
-    <>
+    // The chat fills the screen: the bolt at the top, the question bar resting just above the tab bar.
+    <div className="chat">
       <div className="spread">
-        <h1>{turns.length ? ASSISTANT_NAME : `Ask ${ASSISTANT_NAME}`}</h1>
+        <h1 className="zeus-mark" aria-label={ASSISTANT_NAME}><Bolt size={34} /></h1>
         <div className="row">
           <button className="btn small secondary" onClick={() => setHistory(loadChats())} disabled={busy}>History</button>
           {turns.length > 0 && <button className="btn small secondary" onClick={newChat} disabled={busy}>New chat</button>}
         </div>
       </div>
-      <p className="small muted" data-testid="zeus-scope">
-        {noteId ? (
-          <>Asking about <b>{noteTitle ?? "…"}</b>, with its full transcript. <Link href="/zeus" onClick={() => { setNoteId(null); setTurns([]); setChatId(crypto.randomUUID()); }}>Ask across all recordings</Link></>
-        ) : (
-          <>Asking across your recordings: summaries, items and the transcript lines that match your question. For a deep look at one conversation, open it in Notes and tap “Ask {ASSISTANT_NAME}”.</>
-        )}
-      </p>
+      {/* Shown only when the chat is about one recording, so it is clear which one and how to widen it. */}
+      {noteId && (
+        <p className="small muted" data-testid="zeus-scope">
+          Asking about <b>{noteTitle ?? "…"}</b>, with its full transcript. <Link href="/zeus" onClick={() => { setNoteId(null); setTurns([]); setChatId(crypto.randomUUID()); }}>Ask across all recordings</Link>
+        </p>
+      )}
 
       {turns.length === 0 && (
         <section className="card">
@@ -133,7 +137,6 @@ function Chat() {
           {(noteId ? STARTERS_ONE : STARTERS_ALL).map((s) => (
             <button key={s} className="btn secondary" style={{ justifyContent: "flex-start", textAlign: "left" }} onClick={() => ask(s)}>{s}</button>
           ))}
-          <div className="small muted">You can also ask {ASSISTANT_NAME} to add, change, complete or remove to-dos and reminders.</div>
         </section>
       )}
 
@@ -143,14 +146,12 @@ function Chat() {
           <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{t.content || (busy && i === turns.length - 1 ? "Thinking…" : "")}</div>
         </div>
       ))}
-      <div ref={end} />
 
-      <form className="row" onSubmit={(e) => { e.preventDefault(); void ask(draft); }}>
-        <input className="input" placeholder={`Ask ${ASSISTANT_NAME} anything…`} value={draft} onChange={(e) => setDraft(e.target.value)} aria-label={`Ask ${ASSISTANT_NAME}`} />
+      <form className="row chat-bar" onSubmit={(e) => { e.preventDefault(); void ask(draft); }} data-testid="chat-bar">
+        <input className="input" placeholder={noteId ? GUIDE_ONE : GUIDE_ALL} value={draft} onChange={(e) => setDraft(e.target.value)} aria-label={`Ask ${ASSISTANT_NAME}`} />
         <button className="btn" disabled={busy || !draft.trim()}>{busy ? "…" : "Ask"}</button>
       </form>
-      <p className="small muted">{ASSISTANT_NAME} runs on Claude Sonnet 5.5. It reads your recordings and can change your to-dos and reminders when you ask; each change is shown with a ✓. It cannot change recordings. Chats are saved on this phone only.</p>
-    </>
+    </div>
   );
 }
 

@@ -173,3 +173,18 @@ details.note > summary { cursor: pointer; color: var(--accent); padding: 2px 0 4
 .group > button.line.danger { color: var(--rec); }
 /* Conversation rows: avatar on the left, text beside it, status on the right. */
 .item.list-link { display: flex; }
+/* Round icon buttons: search and import at the top right of Home. */
+.icon-btn { appearance: none; width: 44px; height: 44px; flex: none; border: 0; border-radius: 50%; padding: 0; background: var(--surface-2); color: var(--ink); display: grid; place-items: center; cursor: pointer; }
+.icon-btn:disabled { opacity: 0.5; }
+/* Search opens over the whole screen, above the tab bar. */
+.search-screen { position: fixed; inset: 0; z-index: 45; background: var(--bg); overflow-y: auto; overscroll-behavior: contain; }
+.search-inner { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(24px + env(safe-area-inset-bottom, 0px)); }
+.recent-search { display: block; width: 100%; min-height: 44px; padding: 8px 0; background: none; border: 0; border-bottom: 1px solid var(--line); text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.recent-search:last-child { border-bottom: 0; }
+/* Zeus: the chat fills the screen and the question bar rests just above the tab bar. --foot is the room the
+   tab bar and its raised microphone need; the page's own bottom padding (128px) is wider, so the chat reaches into it. */
+.page:has(> .chat) { min-height: 100vh; min-height: 100dvh; }
+.chat { --foot: 84px; flex: 1; display: flex; flex-direction: column; gap: 16px; margin-bottom: calc(var(--foot) - 128px); }
+/* The shadow fills the sliver between the bar and the tab bar, so a long chat never shows through beneath it. */
+.chat-bar { position: sticky; bottom: calc(var(--foot) + env(safe-area-inset-bottom, 0px)); margin-top: auto; padding: 8px 0; background: var(--bg); box-shadow: 0 16px 0 var(--bg); }
+.zeus-mark { display: flex; align-items: center; line-height: 0; }
