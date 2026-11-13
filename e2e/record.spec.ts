@@ -410,7 +410,8 @@ test("phone check reports formats and builds the Shortcuts link", async ({ page 
 
 test("imports an audio file from another app and sends it through the same upload", async ({ page }) => {
   const mock = await mockBackend(page);
-  await page.goto("/");
+  // Import lives at the top right of Home (and of a folder). The Record screen has no import of its own.
+  await page.goto("/notes");
   await page.getByLabel("Email").fill("me@example.com");
   await page.getByLabel("Password").fill("correct horse battery staple");
   await page.getByRole("button", { name: "Sign in" }).click();

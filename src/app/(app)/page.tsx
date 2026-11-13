@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from "react";
 import { useApp } from "@/components/AppShell";
 import { useRecorder } from "@/components/RecorderProvider";
 import ConversationList, { CONVERSATION_COLUMNS, type ConversationRow } from "@/components/ConversationList";
-import ImportButton from "@/components/ImportButton";
 import { useRecordedMs } from "@/components/TabBar";
 import { clock, duration, megabytes } from "@/lib/format";
 import { deleteSession, patchSession, type LocalSession } from "@/lib/recorder/store";
@@ -13,7 +12,6 @@ export default function RecordPage() {
   const { db, trash, folders } = useApp();
   const { view, recording, paused, engaged, error, local, progress, upload, refreshLocal, changed } = useRecorder();
   const recorded = useRecordedMs();
-  const [notice, setNotice] = useState<{ text: string; ok: boolean } | null>(null);
   const [recent, setRecent] = useState<ConversationRow[]>([]);
 
   const refresh = useCallback(async () => {
@@ -78,14 +76,8 @@ export default function RecordPage() {
             </div>
             {view.notice && <div className="banner rec">{view.notice}</div>}
           </>
-        ) : (
-          <>
-            <p className="small muted" style={{ textAlign: "center" }}>Tap the blue microphone below to record. Audio is saved on this phone every few seconds.</p>
-            <div style={{ textAlign: "center" }}><ImportButton onMessage={(text, ok) => setNotice({ text, ok })} /></div>
-          </>
-        )}
+        ) : null}
         {error && <div className="banner rec">{error}</div>}
-        {notice && <div className={`banner ${notice.ok ? "ok" : "rec"}`} data-testid="import-message">{notice.text}</div>}
       </section>
 
       {pending.length > 0 && (
