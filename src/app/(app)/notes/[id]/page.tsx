@@ -9,7 +9,7 @@ import { MoreIcon } from "@/components/icons";
 import ZeusChat from "@/components/ZeusChat";
 import { api } from "@/lib/client/supabase";
 import { duration, stamp, when } from "@/lib/format";
-import { ASSISTANT_NAME } from "@/lib/models";
+import { ASSISTANT_NAME, CHEAP_MODEL } from "@/lib/models";
 import { STATUS_LABEL } from "@/lib/pipeline/steps";
 import { ITEM_COLUMNS, type Item, type Recording, type Utterance } from "@/lib/types";
 
@@ -161,8 +161,10 @@ function Note() {
             {rec.storage_path && !audioUrl && <button className="btn secondary" onClick={play}>Play audio</button>}
             {audioUrl && <audio controls src={audioUrl} style={{ width: "100%" }} />}
             {rec.audio_deleted_at && <p className="small muted">The audio was deleted 30 days after processing. The transcript stays.</p>}
-            {(rec.status === "ready" || rec.status === "failed") && lines.length > 0 && (
-              <button className="btn secondary" onClick={() => act("redo")} data-testid="redo">Redo with best model</button>
+            {/* Redo has the best model read the transcript again. Offered only where the cheaper model did the
+                reading: a recording the best model already read would just be read again by the same model. */}
+            {rec.model_used === CHEAP_MODEL && (rec.status === "ready" || rec.status === "failed") && lines.length > 0 && (
+              <button className="btn secondary" onClick={() => act("redo")} data-testid="redo">Redo</button>
             )}
           </section>
         </>
