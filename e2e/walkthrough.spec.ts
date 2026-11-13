@@ -166,6 +166,9 @@ test("walk through every screen with realistic data", async ({ page }) => {
   await expect(page.getByTestId("recent")).toHaveCount(4);
   await expect(page.getByTestId("recent").first()).toContainText("Transcribing");
   await expect(page.getByTestId("recent").nth(1)).toContainText("Failed");
+  // Before recording, the screen is the clock and the latest conversations: no how-to line and no import button.
+  await expect(page.getByText(/Tap the blue microphone/)).toHaveCount(0);
+  await expect(page.getByTestId("import-button")).toHaveCount(0);
   await shot(page, "02-record");
 
   // Home, on its Conversations header: the list and search
