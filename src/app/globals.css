@@ -199,6 +199,9 @@ details.note > summary { cursor: pointer; color: var(--accent); padding: 2px 0 4
 /* The shadow fills the sliver between the bar and the tab bar, so a long chat never shows through beneath it. */
 .chat-bar { position: sticky; bottom: calc(var(--foot) + env(safe-area-inset-bottom, 0px)); margin-top: auto; padding: 8px 0; background: var(--bg); box-shadow: 0 16px 0 var(--bg); }
 .zeus-mark { display: flex; align-items: center; line-height: 0; }
+/* The About page: short headed sections of plain bullets. */
+.about ul { margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 8px; }
+.about li { line-height: 1.45; }
 /* A folder's top row: back, the name (cut short with … when long), then its three round buttons. */
 .folder-head { display: flex; align-items: center; gap: 8px; }
 .folder-head h1 { flex: 1; min-width: 0; font-size: 1.2rem; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }

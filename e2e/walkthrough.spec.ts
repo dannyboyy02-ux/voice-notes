@@ -334,6 +334,8 @@ test("walk through every screen with realistic data", async ({ page }) => {
   await expect(page.getByTestId("account-email")).toHaveText("daniel@example.com");
   await expect(page.getByTestId("usage")).toContainText("4 recordings");
   await expect(page.getByTestId("heartbeat")).toHaveText("1 min ago");
+  // The explanations live on the About page now, not on Settings itself.
+  await expect(page.getByText(/An estimate from this app|Auto uses Claude Haiku|Audio is sent to AssemblyAI|Account id/)).toHaveCount(0);
   await shot(page, "10-settings");
   await page.getByTestId("theme").getByRole("button", { name: "Light" }).click();
   await shot(page, "11-settings-light");
@@ -356,6 +358,24 @@ test("walk through every screen with realistic data", async ({ page }) => {
   await page.getByRole("link", { name: "Phone check" }).click();
   await expect(page.getByRole("heading", { name: "Phone check" })).toBeVisible();
   await shot(page, "14-phone-check");
+  await page.getByTestId("back").click();
+  await expect(page.getByTestId("account-email")).toBeVisible();
+
+  // How it works: everything explained in one place, opened like Phone check
+  await page.getByRole("link", { name: "How it works" }).click();
+  await expect(page.getByRole("heading", { name: "About" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Settings" })).toHaveClass(/on/);
+  await expect(page.getByTestId("about-ai")).toContainText("Auto uses Claude Haiku 5.5");
+  await expect(page.getByTestId("about-cost")).toContainText("not your AssemblyAI or Claude bill");
+  await expect(page.getByTestId("about-privacy")).toContainText("Audio is sent to AssemblyAI");
+  await expect(page.getByTestId("about-zeus")).toContainText("Claude Sonnet 5.5");
+  await expect(page.getByTestId("about-recording")).toContainText("Leaving the app open in the background");
+  await expect(page.getByTestId("about-conversations")).toContainText("Swipe a conversation left to delete it");
+  await expect(page.getByTestId("account-id")).toHaveText(USER_ID);
+  await page.getByRole("button", { name: "Copy account id" }).click();
+  await expect(page.getByRole("button", { name: "Copied" })).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(USER_ID);
+  await shot(page, "14b-about");
   await page.getByTestId("back").click();
   await expect(page.getByTestId("account-email")).toBeVisible();
 
