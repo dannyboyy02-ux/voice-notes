@@ -210,10 +210,15 @@ test("walk through every screen with realistic data", async ({ page }) => {
   await expect(page.getByTestId("transcript")).toHaveCount(0);
   await expect(page.getByText("Email Sam the property survey")).toBeVisible();
   await expect(page.getByRole("button", { name: "Play audio" })).toBeVisible();
-  await expect(page.getByTestId("cost")).toContainText("claude-opus-5-5");
+  // No model, token or cost line under the summary, and no back button at the top.
+  await expect(page.getByText(/Read by|tokens in/)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Back" })).toHaveCount(0);
   await shot(page, "05-note");
 
-  // Zeus tab: a chat about this conversation alone, with the question bar at the foot of the screen
+  // Zeus tab: shown as the lightning bolt, named Zeus. A chat about this conversation alone, with the question bar at the foot.
+  await expect(page.getByTestId("tab-zeus")).toHaveText("");
+  await expect(page.getByTestId("tab-zeus").locator("svg")).toHaveCount(1);
+  await expect(page.getByRole("tab", { name: "Zeus" })).toBeVisible();
   await page.getByTestId("tab-zeus").click();
   await expect(page.getByTestId("zeus-scope")).toHaveCount(0);
   const noteBar = (await page.getByTestId("chat-bar").boundingBox())!;
@@ -243,8 +248,8 @@ test("walk through every screen with realistic data", async ({ page }) => {
   await page.getByRole("button", { name: "Close" }).click();
   await expect(page.getByTestId("sheet")).toHaveCount(0);
 
-  // Back returns to where the conversation was opened from
-  await page.getByRole("button", { name: "Back" }).click();
+  // The way out is the tab bar
+  await page.getByRole("link", { name: "Home" }).click();
   await expect(page.getByRole("link", { name: "Conversations" })).toHaveAttribute("aria-current", "page");
 
   // A moment that falls inside a line, not on its start, still lands on that line
@@ -398,6 +403,12 @@ test("walk through every screen with realistic data", async ({ page }) => {
   // Inside a folder the rows do not repeat the folder's name.
   await expect(page.getByTestId("row-folder")).toHaveCount(0);
   await shot(page, "17-folder");
+  await page.getByTestId("note").filter({ hasText: "Call with Sam about the dock" }).click();
+  await expect(page.getByTestId("note-title")).toHaveText("Call with Sam about the dock");
+  await expect(page.getByRole("button", { name: "Back" })).toHaveCount(0);
+  await page.getByRole("link", { name: "Folders" }).click();
+  await page.getByTestId("folder").filter({ hasText: "Dock project" }).click();
+  await expect(page.getByTestId("folder-name")).toHaveText("Dock project");
   // Top right of a folder: search, import, and three dots holding Add conversations, Rename folder and Delete folder
   await expect(page.getByRole("button", { name: "Search this folder" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Import audio" })).toBeVisible();
