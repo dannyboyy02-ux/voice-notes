@@ -22,7 +22,7 @@ const THEMES: { id: Theme; label: string }[] = [
   { id: "light", label: "Light" },
   { id: "auto", label: "Phone" },
 ];
-const PUSH_LABEL = { on: "On", off: "Off", denied: "Blocked", unsupported: "Not supported here", "needs-install": "Needs Home Screen", "not-configured": "Not set up" };
+const PUSH_LABEL = { checking: "Checking…", on: "On", off: "Off", denied: "Blocked", unsupported: "Not supported here", "needs-install": "Needs Home Screen", "not-configured": "Not set up" };
 const noSubscribe = () => () => {};
 
 export default function SettingsPage() {

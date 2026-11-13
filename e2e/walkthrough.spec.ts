@@ -35,7 +35,7 @@ function seed() {
     { recording_id: REC.dock, idx: 1, speaker: "B", start_ms: 417000, end_ms: 421000, text: "Great. Then I can start the 16th." },
     { recording_id: REC.dock, idx: 2, speaker: "A", start_ms: 655000, end_ms: 661000, text: "Remind me Thursday morning to call the county about the permit." },
   ];
-  return { recordings, items, utterances, folders: [] as Row[], settings: { model_mode: "auto", apple_reminders: true } as Row, searches: [] as Row[], oldSearch: false };
+  return { recordings, items, utterances, folders: [] as Row[], settings: { model_mode: "auto", apple_reminders: true } as Row, searches: [] as Row[], oldSearch: false, offline: false, dropped: {} as Record<string, number> };
 }
 
 async function mockBackend(page: Page) {
@@ -58,6 +58,8 @@ async function mockBackend(page: Page) {
     const eq = (k: string) => (q.get(k)?.startsWith("eq.") ? q.get(k)!.slice(3) : null);
     const inList = (k: string) => (q.get(k)?.startsWith("in.(") ? q.get(k)!.slice(4, -1).split(",").map((v) => v.replace(/"/g, "")) : null);
     const send = (rows: Row[]) => json(route, wantsObject ? (rows[0] ?? null) : rows, 200, { "content-range": `0-${Math.max(0, rows.length - 1)}/${rows.length}` });
+    // A dropped connection, as when a phone has just woken: database requests fail without an answer.
+    if (db.offline && url.pathname.startsWith("/rest/v1/")) { db.dropped[url.pathname] = (db.dropped[url.pathname] ?? 0) + 1; return route.abort("connectionfailed"); }
 
     if (url.pathname === "/auth/v1/token") {
       const now = Math.floor(Date.now() / 1000);
@@ -420,4 +422,55 @@ test("walk through every screen with realistic data", async ({ page }) => {
   await expect(page.getByTestId("folder")).toHaveText(/Taxes\s*0 conversations/);
 
   expect(errors, `browser errors: ${errors.join(" | ")}`).toEqual([]);
+});
+
+test("the notices at the top never flash on or off by mistake", async ({ page }) => {
+  const db = await mockBackend(page);
+  // A phone with notifications working: permission given, keys set up on the server, a subscription that takes a moment to look up.
+  await page.route("**/api/config", (r) => r.fulfill({ json: { supabaseUrl: SUPABASE, supabaseAnonKey: "anon-key", vapidPublicKey: "BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U", missing: [] } }));
+  await page.addInitScript(() => {
+    const sub = { endpoint: "https://push.example.test/abc", toJSON: () => ({ keys: { p256dh: "p", auth: "a" } }) };
+    const reg = { pushManager: { getSubscription: () => new Promise((done) => setTimeout(() => done(sub), 500)), subscribe: async () => sub } };
+    // The test browser always refuses notifications, so the permission is stood in for as well.
+    Object.defineProperty(Notification, "permission", { configurable: true, get: () => "granted" });
+    Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: { register: async () => reg, ready: Promise.resolve(reg), addEventListener() {}, removeEventListener() {} } });
+    // Write down every time a notice comes or goes, however briefly.
+    const log: string[] = [];
+    const here: Record<string, boolean> = {};
+    (window as unknown as { notices: string[] }).notices = log;
+    new MutationObserver(() => {
+      for (const id of ["push-banner", "overdue-banner"]) {
+        const now = Boolean(document.querySelector(`[data-testid="${id}"]`));
+        if (now !== Boolean(here[id])) { here[id] = now; log.push(`${id} ${now ? "shown" : "hidden"}`); }
+      }
+    }).observe(document, { childList: true, subtree: true });
+  });
+  const notices = () => page.evaluate(() => (window as unknown as { notices: string[] }).notices);
+
+  await page.goto("/notes");
+  await page.getByLabel("Email").fill("daniel@example.com");
+  await page.getByLabel("Password").fill("pw");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.getByTestId("note")).toHaveCount(4);
+  await expect(page.getByTestId("overdue-banner")).toBeVisible();
+  // Long enough for the notifications check (half a second here) to have finished.
+  await page.waitForTimeout(1200);
+  // Opening the app: notifications are on, so their notice must never have appeared, not even for a moment.
+  expect(await notices()).toEqual(["overdue-banner shown"]);
+
+  // The phone wakes with no connection yet. Nothing is known to have changed, so nothing on screen may change.
+  db.offline = true;
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  // The notifications save fails at once. The reminders look-up is tried four times in all before it gives up.
+  await expect.poll(() => db.dropped["/rest/v1/push_subscriptions"] ?? 0, { timeout: 30_000 }).toBeGreaterThanOrEqual(1);
+  await expect.poll(() => db.dropped["/rest/v1/items"] ?? 0, { timeout: 30_000 }).toBeGreaterThanOrEqual(4);
+  await page.waitForTimeout(500);
+  expect(await notices()).toEqual(["overdue-banner shown"]);
+  await expect(page.getByTestId("overdue-banner")).toContainText("1 overdue reminder");
+
+  // Back online, the next look confirms the same state, still without a flicker.
+  db.offline = false;
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  await page.waitForTimeout(1200);
+  expect(await notices()).toEqual(["overdue-banner shown"]);
 });
