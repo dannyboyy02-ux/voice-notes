@@ -9,7 +9,8 @@ import { useRecorder } from "./RecorderProvider";
 const icon = { width: 22, height: 22, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
 const TABS = [
   { href: "/notes", label: "Home", glyph: <svg {...icon}><path d="M4 11l8-7 8 7v9h-5v-6H9v6H4z" /></svg> },
-  { href: "/folders", label: "Folders", glyph: <svg {...icon}><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg> },
+  // Three stacked layers: the top one whole, the two beneath showing only where they peek out.
+  { href: "/folders", label: "Folders", glyph: <svg {...icon} data-testid="folders-icon"><path d="M12 2l9.5 4-9.5 4-9.5-4z" /><path d="M5.8 10.6L2.5 12l9.5 4 9.5-4-3.3-1.4" /><path d="M5.8 16.6L2.5 18l9.5 4 9.5-4-3.3-1.4" /></svg> },
   null,
   { href: "/zeus", label: "Zeus", glyph: <svg {...icon}><path d="M13 3L6 13h5l-1 8 8-11h-5z" /></svg> },
   { href: "/settings", label: "Settings", glyph: <svg {...icon}><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></svg> },
