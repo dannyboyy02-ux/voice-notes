@@ -97,7 +97,6 @@ export default function SettingsPage() {
         <div className="spread"><b>This month</b><span className="small muted">{usage ? `${usage.count} recording${usage.count === 1 ? "" : "s"}` : "…"}</span></div>
         <div className="small muted">{usage ? `${duration(usage.seconds)} of audio • about $${usage.cost.toFixed(2)} at list prices` : "Adding it up…"}</div>
         <div className="meter"><i style={{ width: `${Math.min(100, (hours / 20) * 100)}%` }} /></div>
-        <div className="small muted">An estimate from this app&apos;s own log, not your AssemblyAI or Claude bill. Zeus chats are not included.</div>
       </section>
 
       {message && <div className="banner">{message}</div>}
@@ -147,9 +146,6 @@ export default function SettingsPage() {
             {MODES.map((m) => <button key={m.id} className={mode === m.id ? "on" : ""} onClick={() => save({ model_mode: m.id })}>{m.label}</button>)}
           </div>
         </div>
-        <div className="note small muted">
-          Auto uses Claude Haiku 5.5 for one speaker and 10 minutes or less, Claude Opus 5.5 for anything else, and reruns on Opus when the cheap pass is unsure. Any recording also has a “Redo with best model” button. Zeus always uses Claude Sonnet 5.5.
-        </div>
       </section>
 
       <div className="group-title">Data</div>
@@ -168,11 +164,8 @@ export default function SettingsPage() {
 
       <div className="group-title">About</div>
       <section className="group">
-        <div className="note small muted" style={{ paddingTop: 12 }}>
-          Audio is sent to AssemblyAI to be transcribed, and the transcript is sent to the Claude API to find the summary and items. When you ask Zeus a question, the relevant transcripts, summaries and items are sent to the Claude API too. Zeus can also add, change or remove your to-dos and reminders when you ask it to. Zeus conversations are saved on this phone only. Audio is deleted from storage 30 days after processing; transcripts and items stay until you delete the recording. Recording other people can require their consent where you are.
-        </div>
+        <Link className="line" href="/about" data-testid="about-link"><span>How it works</span><span className="muted">›</span></Link>
         <Link className="line" href="/phone-check"><span>Phone check</span><span className="muted">›</span></Link>
-        <div className="line"><span>Account id</span><span className="mono muted">{userId.slice(0, 8)}…</span></div>
         <button className="line" style={{ width: "100%", background: "none", border: 0, cursor: "pointer", color: "var(--rec)", font: "inherit" }} onClick={async () => { await db.auth.signOut(); window.location.reload(); }}>
           Sign out
         </button>

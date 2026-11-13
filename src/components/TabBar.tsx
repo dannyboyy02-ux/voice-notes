@@ -88,7 +88,7 @@ export default function TabBar() {
           );
         }
         // Home covers both of its headers: Conversations (/notes) and Action Items (/todos).
-        const on = pathname.startsWith(t.href) || (t.href === "/settings" && pathname.startsWith("/trash")) || (t.href === "/notes" && pathname.startsWith("/todos"));
+        const on = pathname.startsWith(t.href) || (t.href === "/settings" && (pathname.startsWith("/trash") || pathname.startsWith("/about"))) || (t.href === "/notes" && pathname.startsWith("/todos"));
         return <Link key={t.href} href={t.href} className={on ? "on" : ""}>{t.glyph}<span>{t.label}</span></Link>;
       })}
     </nav>
