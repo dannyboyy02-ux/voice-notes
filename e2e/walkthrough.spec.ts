@@ -35,7 +35,7 @@ function seed() {
     { recording_id: REC.dock, idx: 1, speaker: "B", start_ms: 417000, end_ms: 421000, text: "Great. Then I can start the 16th." },
     { recording_id: REC.dock, idx: 2, speaker: "A", start_ms: 655000, end_ms: 661000, text: "Remind me Thursday morning to call the county about the permit." },
   ];
-  return { recordings, items, utterances, folders: [] as Row[], settings: { model_mode: "auto", apple_reminders: true } as Row };
+  return { recordings, items, utterances, folders: [] as Row[], settings: { model_mode: "auto", apple_reminders: true } as Row, searches: [] as Row[], oldSearch: false };
 }
 
 async function mockBackend(page: Page) {
@@ -68,6 +68,10 @@ async function mockBackend(page: Page) {
     if (url.pathname.startsWith("/storage/v1/object/sign/")) return json(route, { signedURL: "/object/sign/audio/x?token=t" });
     if (url.pathname === "/rest/v1/rpc/server_status") return json(route, { scheduler_last_run_at: hours(-0.01), last_tick_at: null, connected: true });
     if (url.pathname === "/rest/v1/rpc/search_notes") {
+      const asked = req.postDataJSON() as Row;
+      db.searches.push(asked);
+      // A database set up before folder search existed has no function that takes a folder.
+      if (db.oldSearch && "folder" in asked) return json(route, { code: "PGRST202", message: "Could not find the function public.search_notes(folder, q) in the schema cache" }, 404);
       return json(route, [
         { recording_id: REC.dock, title: "Call with Sam about the dock", started_at: hours(-50), kind: "transcript", at_ms: 412000, snippet: "I'll send you the [[survey]] tonight.", rank: 0.5 },
         { recording_id: REC.dock, title: "Call with Sam about the dock", started_at: hours(-50), kind: "todo", at_ms: 412000, snippet: "Email Sam the property [[survey]]", rank: 0.4 },
@@ -76,7 +80,11 @@ async function mockBackend(page: Page) {
     if (url.pathname.startsWith("/rest/v1/rpc/")) return json(route, {});
 
     if (url.pathname === "/rest/v1/recordings") {
-      if (req.method() === "PATCH") { db.recordings = db.recordings.map((r) => (r.id === eq("id") ? { ...r, ...(req.postDataJSON() as Row) } : r)); return json(route, []); }
+      if (req.method() === "PATCH") {
+        const ids = inList("id") ?? [eq("id")];
+        db.recordings = db.recordings.map((r) => (ids.includes(r.id as string) ? { ...r, ...(req.postDataJSON() as Row) } : r));
+        return json(route, []);
+      }
       if (req.method() === "DELETE") { db.recordings = db.recordings.filter((r) => r.id !== eq("id")); return json(route, []); }
       let rows = db.recordings.slice().sort((a, b) => String(b.started_at).localeCompare(String(a.started_at)));
       if (eq("id")) rows = rows.filter((r) => r.id === eq("id"));
@@ -291,6 +299,9 @@ test("walk through every screen with realistic data", async ({ page }) => {
   // Letting go after a hold must not open the conversation.
   await expect(page).toHaveURL(/\/notes$/);
   await expect(page.getByTestId("sheet")).toContainText("Call with Sam about the dock");
+  // The card at the top says what the conversation is before anything is done with it.
+  await expect(page.getByTestId("peek")).toContainText("18 min · 2 speakers");
+  await expect(page.getByTestId("peek")).toContainText("Sam can repair the dock the week of the 16th.");
   await shot(page, "15-hold-menu");
 
   // Export the transcript as a text file
@@ -332,8 +343,18 @@ test("walk through every screen with realistic data", async ({ page }) => {
   await page.getByTestId("folder").click();
   await expect(page.getByTestId("folder-name")).toHaveText("Dock project");
   await expect(page.getByTestId("note")).toHaveCount(2);
+  // Inside a folder the rows do not repeat the folder's name.
+  await expect(page.getByTestId("row-folder")).toHaveCount(0);
   await shot(page, "17-folder");
-  await page.getByRole("button", { name: "Rename" }).click();
+  // Top right of a folder: search, import, and three dots holding Add conversations, Rename folder and Delete folder
+  await expect(page.getByRole("button", { name: "Search this folder" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Import audio" })).toBeVisible();
+  await page.getByRole("button", { name: "Folder options" }).click();
+  await expect(page.getByTestId("folder-menu")).toContainText("2 conversations");
+  await expect(page.getByRole("button", { name: "Add conversations" })).toBeVisible();
+  await shot(page, "17b-folder-menu");
+  await page.getByRole("button", { name: "Rename folder" }).click();
+  await expect(page.getByTestId("folder-menu")).toHaveCount(0);
   await page.getByLabel("Folder name").fill("Dock repair");
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByTestId("folder-name")).toHaveText("Dock repair");
@@ -341,7 +362,39 @@ test("walk through every screen with realistic data", async ({ page }) => {
   await page.getByRole("button", { name: /Move to folder/ }).click();
   await page.getByRole("button", { name: "Remove from folder" }).click();
   await expect(page.getByTestId("note")).toHaveCount(1);
+
+  // Add conversations: everything not already here is offered; a picked one joins the folder
+  await page.getByRole("button", { name: "Folder options" }).click();
+  await page.getByRole("button", { name: "Add conversations" }).click();
+  await expect(page.getByTestId("add-choices").locator("label")).toHaveCount(3);
+  await expect(page.getByTestId("add-choices")).not.toContainText("Call with Sam about the dock");
+  await expect(page.getByRole("button", { name: "Add", exact: true })).toBeDisabled();
+  await page.getByTestId("add-choices").getByText("2027 Budget Review").click();
+  await shot(page, "17c-add-conversations");
+  await page.getByRole("button", { name: "Add 1" }).click();
+  await expect(page.getByTestId("add-sheet")).toHaveCount(0);
+  await expect(page.getByTestId("note")).toHaveCount(2);
+  expect(db.recordings.find((r) => r.id === REC.budget)?.folder_id).toBe(db.folders[0].id);
+
+  // Search inside a folder asks the database for this folder only
+  await page.getByRole("button", { name: "Search this folder" }).click();
+  await expect(page.getByTestId("search")).toHaveAttribute("placeholder", "Search in Dock repair");
+  await page.getByTestId("search").fill("survey");
+  await expect(page.getByTestId("hit")).toHaveCount(2);
+  expect(db.searches.at(-1)).toEqual({ q: "survey", folder: db.folders[0].id });
+  // On a database from before folder search, it searches everything and keeps this folder's matches
+  db.oldSearch = true;
+  await page.getByTestId("search").fill("survey tonight");
+  await expect.poll(() => db.searches.at(-1)).toEqual({ q: "survey tonight" });
+  expect(db.searches.at(-2)).toEqual({ q: "survey tonight", folder: db.folders[0].id });
+  await expect(page.getByTestId("hit")).toHaveCount(2);
+  await expect(page.getByTestId("search-partial")).toHaveCount(0);
+  db.oldSearch = false;
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.getByTestId("search-screen")).toHaveCount(0);
+
   page.once("dialog", (d) => d.accept());
+  await page.getByRole("button", { name: "Folder options" }).click();
   await page.getByRole("button", { name: "Delete folder" }).click();
   await expect(page.getByRole("heading", { name: "Folders" })).toBeVisible();
   await expect(page.getByTestId("folder")).toHaveCount(0);

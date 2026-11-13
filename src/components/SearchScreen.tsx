@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { clearSearches, keepSearch, loadSearches } from "@/lib/client/searches";
 import { shortDay, stamp } from "@/lib/format";
 import { useApp } from "./AppShell";
@@ -21,27 +21,45 @@ function Snippet({ text }: { text: string }) {
   );
 }
 
+/** The search function returns at most this many matches. */
+const MOST = 50;
+
 /**
- * Search, opened from the magnifying glass on Home. It covers the screen, shows results as you type,
- * and lists your recent searches while the box is empty. A search is kept when you press Search,
- * open a result, or leave after it found something.
+ * Search, opened from a magnifying glass. It covers the screen, shows results as you type, and lists
+ * your recent searches while the box is empty. A search is kept when you press Search, open a result,
+ * or leave after it found something. Opened from inside a folder, it searches that folder only.
  */
-export default function SearchScreen({ onClose }: { onClose: () => void }) {
+export default function SearchScreen({ onClose, folder }: { onClose: () => void; folder?: { id: string; name: string; recordingIds: string[] } }) {
   const { db } = useApp();
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<Hit[] | null>(null);
+  // True when an older database could not search the folder itself, so some matches may be missing.
+  const [partial, setPartial] = useState(false);
   const [recent, setRecent] = useState<string[]>(() => loadSearches());
+  const folderId = folder?.id;
+  const idsKey = folder?.recordingIds.join(",") ?? "";
+  const inFolder = useMemo(() => new Set(idsKey ? idsKey.split(",") : []), [idsKey]);
 
   useEffect(() => {
     const q = query.trim();
     let live = true;
     const t = setTimeout(async () => {
-      if (q.length < 2) return setHits(null);
-      const { data } = await db.rpc("search_notes", { q });
-      if (live) setHits((data as Hit[]) ?? []);
+      if (q.length < 2) { setHits(null); setPartial(false); return; }
+      let found: Hit[] = [];
+      let cut = false;
+      const scoped = folderId ? await db.rpc("search_notes", { q, folder: folderId }) : null;
+      if (scoped && !scoped.error) {
+        found = (scoped.data as Hit[]) ?? [];
+      } else {
+        const all = (((await db.rpc("search_notes", { q })).data as Hit[]) ?? []);
+        // A database set up before folder search existed: search everything and keep this folder's matches.
+        found = folderId ? all.filter((h) => inFolder.has(h.recording_id)) : all;
+        cut = Boolean(folderId) && all.length >= MOST;
+      }
+      if (live) { setHits(found); setPartial(cut); }
     }, 250);
     return () => { live = false; clearTimeout(t); };
-  }, [db, query]);
+  }, [db, query, folderId, inFolder]);
 
   // The page behind stays still while search is open.
   useEffect(() => {
@@ -56,7 +74,7 @@ export default function SearchScreen({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="search-screen" role="dialog" aria-modal="true" aria-label="Search" data-testid="search-screen">
+    <div className="search-screen" role="dialog" aria-modal="true" aria-label={folder ? `Search in ${folder.name}` : "Search"} data-testid="search-screen">
       <div className="search-inner">
         <form className="row" role="search" onSubmit={(e) => { e.preventDefault(); setRecent(keepSearch(query)); }}>
           <input
@@ -64,8 +82,8 @@ export default function SearchScreen({ onClose }: { onClose: () => void }) {
             type="search"
             enterKeyHint="search"
             autoFocus
-            placeholder="Search everything you said"
-            aria-label="Search everything you said"
+            placeholder={folder ? `Search in ${folder.name}` : "Search everything you said"}
+            aria-label={folder ? `Search in ${folder.name}` : "Search everything you said"}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Escape") close(); }}
@@ -85,7 +103,8 @@ export default function SearchScreen({ onClose }: { onClose: () => void }) {
                 </div>
               </Link>
             ))}
-            {hits.length === 0 && <p className="muted">No matches.</p>}
+            {hits.length === 0 && <p className="muted">{folder ? "No matches in this folder." : "No matches."}</p>}
+            {partial && <div className="small muted" data-testid="search-partial">Only the strongest matches were checked, so some in this folder may be missing. Run the newest supabase/setup.sql once to search folders in full.</div>}
           </section>
         ) : recent.length > 0 ? (
           <section className="card">
@@ -101,7 +120,7 @@ export default function SearchScreen({ onClose }: { onClose: () => void }) {
             <div className="small muted">Kept on this phone only.</div>
           </section>
         ) : (
-          <p className="muted">Searches your summaries, transcripts, to-dos and reminders.</p>
+          <p className="muted">{folder ? "Searches the summaries, transcripts, to-dos and reminders in this folder." : "Searches your summaries, transcripts, to-dos and reminders."}</p>
         )}
       </div>
     </div>

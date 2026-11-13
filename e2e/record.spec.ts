@@ -2,6 +2,7 @@ import { expect, test, type Page, type Route } from "@playwright/test";
 
 const SUPABASE = "https://mock-project.supabase.test";
 const USER_ID = "11111111-2222-4333-8444-555555555555";
+const FOLDER_ID = "cccccccc-0000-4000-8000-000000000001";
 const CORS = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "*",
@@ -87,6 +88,10 @@ async function mockBackend(page: Page): Promise<Mock> {
       const rows = (id ? mock.rows.filter((r) => r.id === id) : mock.rows).filter((r) =>
         filter === "is.null" ? !r.deleted_at : filter === "not.is.null" ? !!r.deleted_at : true);
       return json(route, wantsObject ? (rows[0] ?? null) : rows, 200, { "content-range": `0-${rows.length}/${rows.length}` });
+    }
+    if (url.pathname === "/rest/v1/folders") {
+      const folder = { id: FOLDER_ID, name: "Imports", created_at: new Date().toISOString() };
+      return json(route, (req.headers()["accept"] ?? "").includes("vnd.pgrst.object") ? folder : [folder], 200, { "content-range": "0-0/1" });
     }
     if (url.pathname.startsWith("/rest/v1/rpc/")) return json(route, {});
     if (url.pathname.startsWith("/rest/v1/")) return json(route, [], 200, { "content-range": "*/0" });
@@ -427,4 +432,21 @@ test("imports an audio file from another app and sends it through the same uploa
   expect(Number(mock.rows[0].duration_ms)).toBeGreaterThan(5000);
   expect(mock.kicks).toBeGreaterThan(0);
   await expect(page.getByTestId("local-session")).toHaveCount(0);
+});
+
+test("an audio file imported from inside a folder is filed in that folder", async ({ page }) => {
+  const mock = await mockBackend(page);
+  await page.goto(`/folders/${FOLDER_ID}`);
+  await page.getByLabel("Email").fill("me@example.com");
+  await page.getByLabel("Password").fill("correct horse battery staple");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.getByTestId("folder-name")).toHaveText("Imports");
+  await expect(page.getByTestId("note")).toHaveCount(0);
+
+  await page.getByTestId("import-input").setInputFiles("public/selftest-sample.mp3");
+  await expect(page.getByTestId("import-message")).toContainText("It appears in this folder once uploaded");
+  // The row saved on the server carries the folder, and the folder's list picks it up without a reload.
+  await expect.poll(() => mock.rows.length, { timeout: 15_000 }).toBe(1);
+  expect(mock.rows[0]).toMatchObject({ folder_id: FOLDER_ID, mime_type: "audio/mpeg", status: "uploaded" });
+  await expect(page.getByTestId("note")).toHaveCount(1);
 });

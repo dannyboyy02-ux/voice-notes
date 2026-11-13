@@ -7,9 +7,9 @@ import { useRecorder } from "./RecorderProvider";
  * Picks an audio file from the phone (Files, or an attachment saved from another app) and imports it.
  * The file is then uploaded, transcribed and summarised exactly like a recording made here.
  * Given children (an icon, say), the button shows those instead of its words. `place` says where the
- * imported recording will turn up, for the message shown afterwards.
+ * imported recording will turn up, for the message shown afterwards. With `folderId`, it is filed in that folder.
  */
-export default function ImportButton({ className = "btn small secondary", place = "below", onMessage, children }: { className?: string; place?: string; onMessage: (text: string, ok: boolean) => void; children?: React.ReactNode }) {
+export default function ImportButton({ className = "btn small secondary", place = "below", folderId, onMessage, children }: { className?: string; place?: string; folderId?: string; onMessage: (text: string, ok: boolean) => void; children?: React.ReactNode }) {
   const { importFile } = useRecorder();
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -33,7 +33,7 @@ export default function ImportButton({ className = "btn small secondary", place 
           setBusy(true);
           const problems: string[] = [];
           for (const f of files) {
-            const problem = await importFile(f);
+            const problem = await importFile(f, folderId);
             if (problem) problems.push(problem);
           }
           setBusy(false);

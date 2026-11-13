@@ -50,9 +50,12 @@ export async function uploadSession(id: string, onProgress: (fraction: number) =
     const row = {
       id: s.id, user_id: s.userId, started_at: s.startedAt, time_zone: s.timeZone, duration_ms: s.durationMs,
       storage_path: path, mime_type: s.mimeType, bytes: file.size, part: s.part, status: "uploaded",
+      ...(s.folderId ? { folder_id: s.folderId } : {}),
     };
     // ignoreDuplicates: a repeat must not push a recording that is already being processed back to "uploaded".
-    const { error } = await db.from("recordings").upsert(row, { onConflict: "id", ignoreDuplicates: true });
+    let { error } = await db.from("recordings").upsert(row, { onConflict: "id", ignoreDuplicates: true });
+    // The folder it was imported into may have been deleted meanwhile: the recording is kept, unfiled.
+    if (error && s.folderId) ({ error } = await db.from("recordings").upsert({ ...row, folder_id: null }, { onConflict: "id", ignoreDuplicates: true }));
     if (error) throw new Error(error.message);
     const { data: saved, error: readError } = await db.from("recordings").select("id").eq("id", s.id).maybeSingle();
     if (readError || !saved) throw new Error(readError?.message ?? "The server did not confirm the recording.");
