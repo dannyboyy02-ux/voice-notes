@@ -2,7 +2,8 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { Recorder, type RecorderView } from "@/lib/recorder/recorder";
-import { listSessions, type LocalSession } from "@/lib/recorder/store";
+import { audioKind, importProblem, importStartedAt } from "@/lib/import";
+import { listSessions, putChunk, putSession, type LocalSession } from "@/lib/recorder/store";
 import { uploadSession } from "@/lib/recorder/upload";
 
 type RecorderApi = {
@@ -21,6 +22,8 @@ type RecorderApi = {
   progress: Record<string, number>;
   upload: (id: string) => Promise<void>;
   refreshLocal: () => Promise<void>;
+  /** Takes an audio file made elsewhere and sends it through the same upload and processing. Returns why not, if it cannot. */
+  importFile: (file: File) => Promise<string | null>;
   /** Goes up whenever an upload finishes or fails, so screens know to reload their lists. */
   changed: number;
 };
@@ -30,6 +33,20 @@ export function useRecorder(): RecorderApi {
   const api = useContext(Ctx);
   if (!api) throw new Error("useRecorder outside RecorderProvider");
   return api;
+}
+
+/** How long a picked audio file runs, if the phone can tell without decoding all of it. */
+function audioDurationMs(file: File): Promise<number | null> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const audio = new Audio();
+    const finish = (ms: number | null) => { clearTimeout(timer); URL.revokeObjectURL(url); resolve(ms); };
+    const timer = setTimeout(() => finish(null), 4000);
+    audio.preload = "metadata";
+    audio.onloadedmetadata = () => finish(Number.isFinite(audio.duration) && audio.duration > 0 ? Math.round(audio.duration * 1000) : null);
+    audio.onerror = () => finish(null);
+    audio.src = url;
+  });
 }
 
 /** Owns the recorder, so the tab bar can control it and a recording carries on whichever screen is showing. */
@@ -58,6 +75,27 @@ export default function RecorderProvider({ userId, children }: { userId: string;
       setChanged((n) => n + 1);
     }
   }, [refreshLocal]);
+
+  const importFile = useCallback(async (file: File): Promise<string | null> => {
+    const problem = importProblem(file);
+    if (problem) return problem;
+    try {
+      const id = crypto.randomUUID();
+      // Stored on the phone first, exactly like a recording, so a dropped connection resumes instead of losing it.
+      await putSession({
+        id, userId, startedAt: importStartedAt(file.lastModified, Date.now()),
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, mimeType: audioKind(file.name, file.type)!,
+        part: 1, bytes: 0, chunks: 0, lastChunkAt: Date.now(), durationMs: await audioDurationMs(file),
+        state: "stopped", note: `Imported: ${file.name}`,
+      });
+      await putChunk(id, 0, file);
+      await refreshLocal();
+      void upload(id);
+      return null;
+    } catch (e) {
+      return `Could not import: ${(e as Error).message}`;
+    }
+  }, [userId, refreshLocal, upload]);
 
   // On open: finished recordings that never uploaded are sent now. Unfinished ones wait for a tap on Recover.
   useEffect(() => {
@@ -113,7 +151,7 @@ export default function RecorderProvider({ userId, children }: { userId: string;
   const active = view?.recording ?? false;
 
   return (
-    <Ctx.Provider value={{ view, recording: active, paused: view?.paused ?? false, engaged, error, start, pause, resume, stop, local, progress, upload, refreshLocal, changed }}>
+    <Ctx.Provider value={{ view, recording: active, paused: view?.paused ?? false, engaged, error, start, pause, resume, stop, local, progress, upload, refreshLocal, importFile, changed }}>
       {children}
     </Ctx.Provider>
   );

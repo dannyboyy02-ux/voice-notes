@@ -10,7 +10,7 @@ import RecorderProvider from "./RecorderProvider";
 import Splash from "./Splash";
 import TabBar from "./TabBar";
 
-type App = { db: SupabaseClient; userId: string; email: string; trash: boolean; push: PushState; setPush: (p: PushState) => void; refreshOverdue: () => void };
+type App = { db: SupabaseClient; userId: string; email: string; trash: boolean; folders: boolean; push: PushState; setPush: (p: PushState) => void; refreshOverdue: () => void };
 const Ctx = createContext<App | null>(null);
 export function useApp(): App {
   const app = useContext(Ctx);
@@ -23,7 +23,7 @@ type Gate =
   | { kind: "setup"; missing: string[] }
   | { kind: "login" }
   | { kind: "not-owner"; userId: string; configured: boolean }
-  | { kind: "ready"; userId: string; email: string; trash: boolean; warning: string | null };
+  | { kind: "ready"; userId: string; email: string; trash: boolean; folders: boolean; warning: string | null };
 
 
 function Login({ db, onDone }: { db: SupabaseClient; onDone: () => void }) {
@@ -111,8 +111,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             : null;
       // Trash needs a column added by the newer database script; without it, deleting erases at once.
       const probe = await client.from("recordings").select("deleted_at").limit(1);
+      // Folders need a table and a column from the same script.
+      const folderProbe = await client.from("recordings").select("folder_id").limit(1);
       if (!live) return;
-      setGate({ kind: "ready", userId: data.session.user.id, email: data.session.user.email ?? "", trash: !probe.error, warning });
+      setGate({ kind: "ready", userId: data.session.user.id, email: data.session.user.email ?? "", trash: !probe.error, folders: !folderProbe.error, warning });
       setPush(await checkPush());
     })();
     return () => { live = false; };
@@ -187,7 +189,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <Ctx.Provider value={{ db, userId: gate.userId, email: gate.email, trash: gate.trash, push, setPush, refreshOverdue }}>
+    <Ctx.Provider value={{ db, userId: gate.userId, email: gate.email, trash: gate.trash, folders: gate.folders, push, setPush, refreshOverdue }}>
       <RecorderProvider userId={gate.userId}>
       <div className="page">
         {gate.warning && <div className="banner rec">{gate.warning}</div>}

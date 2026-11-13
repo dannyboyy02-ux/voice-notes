@@ -1,31 +1,27 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useApp } from "@/components/AppShell";
 import { useRecorder } from "@/components/RecorderProvider";
-import SwipeToDelete from "@/components/SwipeToDelete";
+import ConversationList, { CONVERSATION_COLUMNS, type ConversationRow } from "@/components/ConversationList";
+import ImportButton from "@/components/ImportButton";
 import { useRecordedMs } from "@/components/TabBar";
-import { deleteRecording } from "@/lib/client/recordings";
 import { clock, duration, megabytes } from "@/lib/format";
-import { STATUS_LABEL, type Status } from "@/lib/pipeline/steps";
 import { deleteSession, patchSession, type LocalSession } from "@/lib/recorder/store";
 
-type Recent = { id: string; status: Status; title: string | null; summary: string | null; started_at: string; storage_path: string | null };
-
 export default function RecordPage() {
-  const { db, trash } = useApp();
+  const { db, trash, folders } = useApp();
   const { view, recording, paused, engaged, error, local, progress, upload, refreshLocal, changed } = useRecorder();
   const recorded = useRecordedMs();
-  const [problem, setProblem] = useState("");
-  const [recent, setRecent] = useState<Recent[]>([]);
+  const [notice, setNotice] = useState<{ text: string; ok: boolean } | null>(null);
+  const [recent, setRecent] = useState<ConversationRow[]>([]);
 
   const refresh = useCallback(async () => {
-    let q = db.from("recordings").select("id, status, title, summary, started_at, storage_path").eq("is_test", false);
+    let q = db.from("recordings").select(`${CONVERSATION_COLUMNS}${folders ? ", folder_id" : ""}`).eq("is_test", false);
     if (trash) q = q.is("deleted_at", null);
     const { data } = await q.order("started_at", { ascending: false }).limit(10);
-    setRecent((data as Recent[]) ?? []);
-  }, [db, trash]);
+    setRecent((data as unknown as ConversationRow[]) ?? []);
+  }, [db, trash, folders]);
 
   // Reload the list on open and whenever an upload finishes.
   useEffect(() => {
@@ -83,9 +79,13 @@ export default function RecordPage() {
             {view.notice && <div className="banner rec">{view.notice}</div>}
           </>
         ) : (
-          <p className="small muted" style={{ textAlign: "center" }}>Tap the blue microphone below to record. Audio is saved on this phone every few seconds.</p>
+          <>
+            <p className="small muted" style={{ textAlign: "center" }}>Tap the blue microphone below to record. Audio is saved on this phone every few seconds.</p>
+            <div style={{ textAlign: "center" }}><ImportButton onMessage={(text, ok) => setNotice({ text, ok })} /></div>
+          </>
         )}
-        {(error || problem) && <div className="banner rec">{error || problem}</div>}
+        {error && <div className="banner rec">{error}</div>}
+        {notice && <div className={`banner ${notice.ok ? "ok" : "rec"}`} data-testid="import-message">{notice.text}</div>}
       </section>
 
       {pending.length > 0 && (
@@ -116,30 +116,8 @@ export default function RecordPage() {
 
       {recent.length > 0 && (
         <section className="card">
-          <div className="spread"><span className="label">Latest</span><span className="small muted">{trash ? "Swipe left to move to Trash" : "Swipe left to delete"}</span></div>
-          {recent.map((r) => {
-            const fallback = new Date(r.started_at).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" });
-            return (
-              <SwipeToDelete
-                key={r.id}
-                label={r.title ?? fallback}
-                onDelete={async () => {
-                  const failed = await deleteRecording(db, r, trash);
-                  if (failed) setProblem(`Could not delete: ${failed}`);
-                  await refresh();
-                }}
-              >
-                <Link href={`/notes/${r.id}`} className="item list-link" data-testid="recent" draggable={false}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div>{r.title ?? fallback}</div>
-                    {r.summary && <div className="small muted two-line">{r.summary}</div>}
-                    {r.title && <div className="small muted">{fallback}</div>}
-                  </div>
-                  <span className={`pill ${r.status === "ready" ? "ok" : r.status === "failed" ? "rec" : ""}`} data-testid="upload-status">{STATUS_LABEL[r.status]}</span>
-                </Link>
-              </SwipeToDelete>
-            );
-          })}
+          <div className="spread"><span className="label">Latest</span><span className="small muted">Swipe left to delete · hold for more</span></div>
+          <ConversationList rows={recent} testid="recent" showStatus onChanged={refresh} />
         </section>
       )}
     </>

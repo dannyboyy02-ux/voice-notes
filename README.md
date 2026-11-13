@@ -4,7 +4,11 @@ A personal iPhone home-screen web app. Record a thought or a meeting; a minute o
 
 ## How it works
 
-- **Deleting and Trash**: swipe a recording left on the Record or Notes screen and tap Delete. It moves to Trash (Settings > Trash), where it can be restored for 30 days; after that the worker erases the audio, transcript and items for good. Its to-dos are hidden and its reminders do not alert while it is in Trash. Trash needs the `deleted_at` column from the current `supabase/setup.sql`; on a database without it the app says so and deleting erases at once.
+- **Screens**: the bottom bar is Home, Folders, the microphone, Zeus and Settings. Home has two headers to choose between, Conversations (the list, with search) and Action Items (to-dos and reminders).
+- **Import**: "Import audio" (on Home and on the Record screen) takes an audio file made elsewhere, for example a conversation exported from another notes app and saved to Files. Formats: m4a, mp3, wav, aac, ogg, webm, flac, mp4, up to 50 MB each (the Supabase Free limit for one file). The file is stored on the phone, uploaded in resumable pieces and then transcribed and summarised exactly like a recording made here. Its date is the file's modified date. iPhone does not let a home-screen web app appear in another app's share sheet, so the file has to be picked from inside this app.
+- **Folders**: a conversation can sit in one folder. Create, rename and delete folders on the Folders tab; deleting a folder keeps its conversations. Needs the `folders` table from the current `supabase/setup.sql`; without it the app says so.
+- **Press and hold a conversation** (any list) for Share (summary and action items through the phone's share sheet, or copied where there is none), Move to folder, Export transcript (a text file with times and speakers), Export audio (the original file, while it is still kept) and Move to Trash.
+- **Deleting and Trash**: swipe a recording left in any list and tap Delete. It moves to Trash (Settings > Trash), where it can be restored for 30 days; after that the worker erases the audio, transcript and items for good. Its to-dos are hidden and its reminders do not alert while it is in Trash. Trash needs the `deleted_at` column from the current `supabase/setup.sql`; on a database without it the app says so and deleting erases at once.
 - **Recording controls**: the blue microphone in the centre of the bottom bar starts a recording (from another screen the first tap only opens the Record screen). While recording, the bar shows the timer, a pause button that becomes the microphone again to resume, and a stop button (red square in a white circle) to its right. Paused time is left out of the clock and of the recording's length; what was said before a pause is flushed to the phone's storage first.
 - **Opening animation**: on launch a bolt strikes in from the right, the screen flashes once, and the bolt blinks out and returns (about 1.15 seconds, once per launch). With the phone's Reduce Motion setting on, it is a still bolt with no flash.
 - **Look**: dark grey to black by default. Settings > Appearance switches to Light or follows the phone; the choice is kept on the phone.
@@ -53,7 +57,7 @@ A personal iPhone home-screen web app. Record a thought or a meeting; a minute o
 ```bash
 npm run lint
 npm run typecheck
-npm test        # 66 unit tests, then 11 Playwright tests (one walks every screen with realistic data)
+npm test        # 80 unit tests, then 12 Playwright tests (one walks every screen with realistic data)
 npm run build
 ```
 
@@ -61,7 +65,7 @@ npm run build
 - If something is not set up, the same endpoint says what: missing variable names, or which Supabase project it is connected to and which tables, bucket or functions it cannot find.
 - `/phone-check` tests what the iPhone itself allows (formats, real bytes per second, joined-chunk playback, wake lock, interruption, the Shortcuts link).
 
-## Status (11 November 2026)
+## Status (13 November 2026)
 
 Verified against the live services by the self-test: the pipeline from uploaded to ready, speech to text, Claude extraction on Haiku 5.5 with a to-do and a dated reminder, the scheduler's tick sending a due reminder, and cleanup.
 
@@ -70,12 +74,15 @@ Not yet verified:
 - Anything on a real iPhone: recording, wake lock, interruptions, the Home Screen login, push delivery, the Shortcuts hand-off.
 - The phone's resumable upload against real Supabase Storage (tested only against mocks).
 - Zeus changing to-dos against the live model (its tools are tested for input validation only; the browser test uses a mocked reply).
-- Swipe-to-delete on a real touchscreen (tested with a simulated drag).
+- Swipe-to-delete and press-and-hold on a real touchscreen (tested with a simulated drag, a held mouse button and a right-click).
+- Import on an iPhone: picking a file from Files, and files exported by other apps (tested in a desktop browser with an mp3, against a mocked upload).
+- Share and Export on an iPhone: the share sheet with a text file, and the audio download (the test browser has no share sheet, so it exercises the copy and download fallbacks).
+- Folders against the real database (tested against mocks; they need the current `supabase/setup.sql`).
 - Pause and resume on an iPhone: Safari's recorder is asked to pause and resume, which is tested only in a desktop browser.
 - Recordings with several speakers or longer than 10 minutes: the Opus path, the low-confidence rerun, the Review list, the 50 MB part roll-over.
 - The 30-day audio deletion, Retry after three failures, and "Redo with best model" end to end.
 
-Database version: Trash and the "last tick" fix both need the current `supabase/setup.sql` to have been run. The app works without it, with Trash switched off.
+Database version: Trash, Folders and the "last tick" fix all need the current `supabase/setup.sql` to have been run. The app works without it, with Trash and Folders switched off.
 
 Behaviours worth knowing:
 

@@ -394,3 +394,29 @@ test("phone check reports formats and builds the Shortcuts link", async ({ page 
   await expect(page.getByTestId("env")).toContainText("Will record as");
   await expect(page.getByTestId("shortcut-link")).toHaveAttribute("href", /^shortcuts:\/\/run-shortcut\?name=Add%20From%20Voice%20Notes&input=text&text=/);
 });
+
+test("imports an audio file from another app and sends it through the same upload", async ({ page }) => {
+  const mock = await mockBackend(page);
+  await page.goto("/");
+  await page.getByLabel("Email").fill("me@example.com");
+  await page.getByLabel("Password").fill("correct horse battery staple");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.getByTestId("import-button")).toBeVisible();
+
+  // Something that is not audio is refused with the reason.
+  await page.getByTestId("import-input").setInputFiles({ name: "notes.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF") });
+  await expect(page.getByTestId("import-message")).toContainText("not an audio file");
+  expect(mock.rows).toHaveLength(0);
+
+  // A real audio file (the app's own sample) uploads and is saved as a recording, like one made here.
+  await page.getByTestId("import-input").setInputFiles("public/selftest-sample.mp3");
+  await expect(page.getByTestId("import-message")).toContainText("Importing 1 file");
+  await expect(page.getByTestId("upload-status")).toHaveCount(1, { timeout: 15_000 });
+  expect(mock.objectName).toMatch(new RegExp(`^audio/${USER_ID}/[0-9a-f-]{36}\\.mp3$`));
+  expect(mock.uploadedBytes).toBe(35649);
+  expect(mock.rows).toHaveLength(1);
+  expect(mock.rows[0]).toMatchObject({ mime_type: "audio/mpeg", bytes: 35649, status: "uploaded", part: 1 });
+  expect(Number(mock.rows[0].duration_ms)).toBeGreaterThan(5000);
+  expect(mock.kicks).toBeGreaterThan(0);
+  await expect(page.getByTestId("local-session")).toHaveCount(0);
+});
