@@ -6,15 +6,17 @@ import { useRecorder } from "./RecorderProvider";
 /**
  * Picks an audio file from the phone (Files, or an attachment saved from another app) and imports it.
  * The file is then uploaded, transcribed and summarised exactly like a recording made here.
+ * Given children (an icon, say), the button shows those instead of its words. `place` says where the
+ * imported recording will turn up, for the message shown afterwards.
  */
-export default function ImportButton({ className = "btn small secondary", onMessage }: { className?: string; onMessage: (text: string, ok: boolean) => void }) {
+export default function ImportButton({ className = "btn small secondary", place = "below", onMessage, children }: { className?: string; place?: string; onMessage: (text: string, ok: boolean) => void; children?: React.ReactNode }) {
   const { importFile } = useRecorder();
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   return (
     <>
-      <button className={className} disabled={busy} onClick={() => input.current?.click()} data-testid="import-button">
-        {busy ? "Importing…" : "Import audio"}
+      <button className={className} disabled={busy} onClick={() => input.current?.click()} aria-label={children ? (busy ? "Importing audio" : "Import audio") : undefined} data-testid="import-button">
+        {children ?? (busy ? "Importing…" : "Import audio")}
       </button>
       <input
         ref={input}
@@ -37,7 +39,7 @@ export default function ImportButton({ className = "btn small secondary", onMess
           setBusy(false);
           const done = files.length - problems.length;
           if (problems.length) onMessage(problems.join(" "), false);
-          else onMessage(`Importing ${done} file${done === 1 ? "" : "s"}. ${done === 1 ? "It appears" : "They appear"} below once uploaded, then ${done === 1 ? "is" : "are"} transcribed like any recording.`, true);
+          else onMessage(`Importing ${done} file${done === 1 ? "" : "s"}. ${done === 1 ? "It appears" : "They appear"} ${place} once uploaded, then ${done === 1 ? "is" : "are"} transcribed like any recording.`, true);
         }}
       />
     </>

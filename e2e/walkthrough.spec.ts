@@ -167,6 +167,11 @@ test("walk through every screen with realistic data", async ({ page }) => {
   await expect(page.getByTestId("note").nth(2)).not.toContainText("0 m");
   await expect(page.getByTestId("note").first()).toContainText("Untitled recording");
   await shot(page, "03-notes");
+  // Search lives behind the magnifying glass at the top right, beside the plus that imports audio.
+  await expect(page.getByTestId("search")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Import audio" })).toBeVisible();
+  await page.getByRole("button", { name: "Search" }).click();
+  await expect(page.getByTestId("search")).toBeFocused();
   await page.getByTestId("search").fill("survey");
   await expect(page.getByTestId("hit")).toHaveCount(2);
   await expect(page.locator("mark").first()).toHaveText("survey");
@@ -197,10 +202,22 @@ test("walk through every screen with realistic data", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
   await shot(page, "06-note-failed");
 
-  // To-dos: every section, with where each item came from
+  // The earlier search was kept, and is offered again the next time search is opened
   await page.getByRole("link", { name: "Home" }).click();
+  await page.getByRole("button", { name: "Search" }).click();
+  await expect(page.getByTestId("recent-search")).toHaveText(["survey"]);
+  await shot(page, "04b-recent-searches");
+  await page.getByTestId("recent-search").click();
+  await expect(page.getByTestId("hit")).toHaveCount(2);
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.getByTestId("search-screen")).toHaveCount(0);
+  await expect(page.getByTestId("note")).toHaveCount(4);
+
+  // To-dos: every section, with where each item came from. Search and import stay at the top right here too.
   await page.getByRole("link", { name: "Action Items" }).click();
   await expect(page.getByRole("link", { name: "Action Items" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("button", { name: "Search" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Import audio" })).toBeVisible();
   await expect(page.getByText("Overdue")).toBeVisible();
   await expect(page.getByText("Needs a look")).toBeVisible();
   await expect(page.getByTestId("item-source").first()).toContainText("•");
@@ -219,6 +236,9 @@ test("walk through every screen with realistic data", async ({ page }) => {
 
   // Zeus
   await page.getByRole("link", { name: "Zeus" }).click();
+  await expect(page.getByRole("heading", { name: "Zeus", exact: true })).toBeVisible();
+  // An empty chat fits the screen exactly, notices included: nothing to scroll, the question bar at the foot.
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight)).toBe(0);
   await shot(page, "08-zeus-start");
   await page.getByRole("button", { name: "What decisions and actions are outstanding?" }).click();
   await expect(page.getByTestId("turn-assistant")).toContainText("✓ Added reminder: Call Sam");

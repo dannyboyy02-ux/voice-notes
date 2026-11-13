@@ -216,8 +216,16 @@ test("Zeus answers a question and keeps the conversation on screen", async ({ pa
   await page.getByLabel("Password").fill("pw");
   await page.getByRole("button", { name: "Sign in" }).click();
 
-  await expect(page.getByRole("heading", { name: "Ask Zeus" })).toBeVisible();
-  await expect(page.getByTestId("zeus-scope")).toContainText("across your recordings");
+  // The bolt stands in for the title, and a sample question in the box is the only guidance on screen.
+  await expect(page.getByRole("heading", { name: "Zeus", exact: true })).toBeVisible();
+  await expect(page.getByTestId("zeus-scope")).toHaveCount(0);
+  await expect(page.getByLabel("Ask Zeus")).toHaveAttribute("placeholder", "What should I prioritize this week?");
+  await expect(page.getByText(/runs on Claude|You can also ask|Asking across your recordings/)).toHaveCount(0);
+  // The question bar rests at the foot of the screen, just clear of the raised microphone.
+  const barBox = (await page.getByTestId("chat-bar").boundingBox())!;
+  const micBox = (await page.getByTestId("record-button").boundingBox())!;
+  expect(barBox.y + barBox.height).toBeLessThanOrEqual(micBox.y);
+  expect(micBox.y - (barBox.y + barBox.height)).toBeLessThan(24);
   await page.getByLabel("Ask Zeus").fill("What did Sam say about the dock?");
   await page.getByRole("button", { name: "Ask" }).click();
   await expect(page.getByTestId("turn-user")).toHaveText(/What did Sam say about the dock\?/);
