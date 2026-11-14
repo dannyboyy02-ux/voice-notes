@@ -50,6 +50,14 @@ export default function AboutPage() {
         </ul>
       </section>
 
+      <section className="card about" data-testid="about-items">
+        <h2>Action Items</h2>
+        <ul>
+          <li>A to-do or reminder you tick moves to <b>Done today</b> and stays there until midnight. Untick it to open it again.</li>
+          <li>After that it is kept, not deleted: <b>Show earlier</b> at the foot of Action Items lists everything completed before today. Items from a recording also stay, ticked, inside that conversation and in search, and Zeus can still see them.</li>
+        </ul>
+      </section>
+
       <section className="card about" data-testid="about-zeus">
         <h2>Zeus</h2>
         <ul>

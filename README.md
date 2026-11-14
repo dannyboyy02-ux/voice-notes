@@ -15,6 +15,7 @@ A personal iPhone home-screen web app. Record a thought or a meeting; a minute o
 - **Opening animation**: on launch a bolt strikes in from the right, the screen flashes once, and the bolt blinks out and returns (about 1.15 seconds, once per launch). With the phone's Reduce Motion setting on, it is a still bolt with no flash.
 - **Look**: dark grey to black by default. Settings > Appearance switches to Light or follows the phone; the choice is kept on the phone.
 - **To-dos**: each item shows the recording it came from and that recording's date, and opens it at the moment it was said.
+- **Completed items**: a ticked item shows under "Done today" until midnight on the phone, then only under "Show earlier" (50 at a time, most recently completed first). Nothing is deleted: items from a recording stay, ticked, inside it and in search, and Zeus still reads them. The completion time is `items.done_at`, set by a database trigger whenever an item becomes done (whoever ticks it) and cleared when it is opened again; items completed before the column existed have none and are listed last. Open items load separately from completed ones, so a pile of completed items can never push an open one off the list. On a database without `done_at` (the current `supabase/setup.sql` not yet run) Done shows the 15 newest completed items, as before.
 - **Phone**: records in the browser, writes a chunk to IndexedDB every 5 seconds, and uploads straight to Supabase Storage in resumable 6 MB pieces. Audio stays on the phone until the server confirms the recording.
 - **Supabase**: login (email and password, sign-ups off), database with row-level security, a private `audio` bucket, and the scheduler. Every row and file rule also requires the owner's account (`public.is_owner()`), so another account could read and write nothing even if sign-ups were switched on by mistake. Of a recording, the phone may write only the upload's own columns and, afterwards, its folder and Trash date; its status, transcript id, costs and dates are the server's. The owner's id is saved in `private.app_config` by `/api/sync` on each app open (from `OWNER_USER_ID`), or by the setup script when the project has exactly one account. `pg_cron` runs every minute and uses `pg_net` to call `/api/tick` only when work is waiting.
 - **Security headers** (`src/lib/security-headers.ts`): every response carries a Content-Security-Policy that lets pages talk only to this site and the Supabase project in `SUPABASE_URL` (read at build time, so a new project needs a redeploy), forbids framing and plugins, plus `X-Frame-Options`, `X-Content-Type-Options` and `Referrer-Policy`. Scripts allow `'unsafe-inline'` because Next.js inlines its own; nonces would make every page render on the server. The browser tests fail on any policy refusal.
@@ -61,7 +62,7 @@ A personal iPhone home-screen web app. Record a thought or a meeting; a minute o
 ```bash
 npm run lint
 npm run typecheck
-npm test        # 121 unit tests, then 31 Playwright tests: 15 in the browser (one walks every screen with realistic data), 16 straight to the server
+npm test        # 127 unit tests, then 32 Playwright tests: 16 in the browser (one walks every screen with realistic data), 16 straight to the server
 npm run build
 ```
 

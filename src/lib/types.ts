@@ -16,6 +16,8 @@ export type Item = {
   due_local: string | null; said: string | null; quote: string | null; at_ms: number | null;
   state: "suggested" | "active" | "done" | "dismissed"; needs_review: boolean; notified_at: string | null;
   apple_sent_at: string | null; created_at: string;
+  /** When it was completed. Absent when read from a database set up before completion times existed. */
+  done_at?: string | null;
   /** The recording the item came from, when it has one. */
   recording?: { title: string | null; started_at: string; deleted_at?: string | null } | null;
 };
