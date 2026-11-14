@@ -1,7 +1,8 @@
 -- Voice Notes database setup. Safe to run more than once; run it again to pick up later fixes.
 -- Run in the Supabase SQL editor of the project that belongs to this app.
--- Paste this whole file (its last line starts "select id, email, created_at from auth.users")
--- and run it with nothing highlighted. A complete run ends with a table of users.
+-- Paste this whole file (its last line ends "order by u.created_at;") and run it with nothing
+-- highlighted. A complete run ends with a table of users; your account shows is_owner = true
+-- once the app has been opened (or straight away, when it is the only account).
 
 create extension if not exists pg_cron;
 create extension if not exists pg_net;
@@ -144,6 +145,20 @@ create table if not exists private.app_config (
   last_tick_source text
 );
 insert into private.app_config (id) values (true) on conflict do nothing;
+-- The one account this app serves. The server saves it from OWNER_USER_ID each time the app opens
+-- (set_owner, below). When the project has exactly one account, it is filled in here straight away.
+alter table private.app_config add column if not exists owner_id uuid;
+update private.app_config set owner_id = (select id from auth.users limit 1)
+ where id and owner_id is null and (select count(*) from auth.users) = 1;
+
+-- True only for the owner's account. Every rule below requires it, so any other account
+-- (one created if sign-ups were ever switched on, say) can read and write nothing.
+create or replace function public.is_owner() returns boolean
+language sql stable security definer set search_path = '' as $$
+  select exists (select 1 from private.app_config where id and owner_id = (select auth.uid()));
+$$;
+revoke all on function public.is_owner() from public, anon;
+grant execute on function public.is_owner() to authenticated;
 
 -- ---------------------------------------------------------------- row-level security
 alter table public.recordings enable row level security;
@@ -161,12 +176,12 @@ begin
   foreach t in array array['recordings', 'items', 'push_subscriptions', 'settings', 'folders'] loop
     execute format('drop policy if exists own_rows on public.%I', t);
     execute format(
-      'create policy own_rows on public.%I for all to authenticated using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()))', t);
+      'create policy own_rows on public.%I for all to authenticated using (user_id = (select auth.uid()) and (select public.is_owner())) with check (user_id = (select auth.uid()) and (select public.is_owner()))', t);
   end loop;
   foreach t in array array['utterances', 'llm_runs'] loop
     execute format('drop policy if exists own_rows_read on public.%I', t);
     execute format(
-      'create policy own_rows_read on public.%I for select to authenticated using (user_id = (select auth.uid()))', t);
+      'create policy own_rows_read on public.%I for select to authenticated using (user_id = (select auth.uid()) and (select public.is_owner()))', t);
   end loop;
 end $$;
 
@@ -180,8 +195,8 @@ on conflict (id) do update set public = false, file_size_limit = 52428800;
 
 drop policy if exists audio_own_files on storage.objects;
 create policy audio_own_files on storage.objects for all to authenticated
-  using (bucket_id = 'audio' and (storage.foldername(name))[1] = (select auth.uid())::text)
-  with check (bucket_id = 'audio' and (storage.foldername(name))[1] = (select auth.uid())::text);
+  using (bucket_id = 'audio' and (storage.foldername(name))[1] = (select auth.uid())::text and (select public.is_owner()))
+  with check (bucket_id = 'audio' and (storage.foldername(name))[1] = (select auth.uid())::text and (select public.is_owner()));
 
 -- ---------------------------------------------------------------- worker functions (service role only)
 create or replace function public.touch_updated_at() returns trigger
@@ -264,6 +279,11 @@ language sql security definer set search_path = '' as $$
   update private.app_config set app_url = p_url where app_url is distinct from p_url;
 $$;
 
+create or replace function public.set_owner(p_owner uuid) returns void
+language sql security definer set search_path = '' as $$
+  update private.app_config set owner_id = p_owner where id and owner_id is distinct from p_owner;
+$$;
+
 create or replace function public.note_tick(p_source text) returns void
 language sql security definer set search_path = '' as $$
   update private.app_config set last_tick_at = now(), last_tick_source = p_source where id;
@@ -286,7 +306,7 @@ declare f text;
 begin
   foreach f in array array[
     'claim_recording()', 'claim_poll()', 'sweep_stuck()', 'claim_due_reminders()',
-    'verify_tick_secret(text)', 'set_app_url(text)', 'note_tick(text)', 'scheduler_state()'] loop
+    'verify_tick_secret(text)', 'set_app_url(text)', 'set_owner(uuid)', 'note_tick(text)', 'scheduler_state()'] loop
     execute format('revoke all on function public.%s from public, anon, authenticated', f);
     execute format('grant execute on function public.%s to service_role', f);
   end loop;
@@ -382,4 +402,6 @@ notify pgrst, 'reload schema';
 -- ---------------------------------------------------------------- result
 -- After you create your login (Authentication > Users > Add user), the id column
 -- below is the value for the OWNER_USER_ID environment variable in Vercel.
-select id, email, created_at from auth.users order by created_at;
+select u.id, u.email, u.created_at, (u.id = c.owner_id) as is_owner
+  from auth.users u cross join private.app_config c
+ order by u.created_at;
