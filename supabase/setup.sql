@@ -93,6 +93,10 @@ create table if not exists public.items (
 );
 create index if not exists items_user_state on public.items (user_id, state);
 create index if not exists items_due on public.items (due_at) where type = 'reminder' and state = 'active' and notified_at is null;
+-- When an item was completed. Set by the database (trigger below), so every way of ticking an item counts.
+-- Items completed before this column existed keep it empty.
+alter table public.items add column if not exists done_at timestamptz;
+create index if not exists items_done on public.items (user_id, done_at desc) where state = 'done';
 create index if not exists items_fts on public.items using gin (fts);
 
 create table if not exists public.push_subscriptions (
@@ -216,6 +220,22 @@ begin new.updated_at := now(); return new; end $$;
 drop trigger if exists recordings_touch on public.recordings;
 create trigger recordings_touch before update on public.recordings
   for each row execute function public.touch_updated_at();
+
+-- done_at follows the state: stamped when an item becomes done, kept while it stays done, cleared when it
+-- is opened again. Whatever a client sends for done_at is ignored.
+create or replace function public.stamp_done_at() returns trigger
+language plpgsql set search_path = '' as $$
+begin
+  if new.state = 'done' then
+    new.done_at := case when tg_op = 'UPDATE' and old.state = 'done' then old.done_at else now() end;
+  else
+    new.done_at := null;
+  end if;
+  return new;
+end $$;
+drop trigger if exists items_done_at on public.items;
+create trigger items_done_at before insert or update on public.items
+  for each row execute function public.stamp_done_at();
 
 -- One worker gets the row. A second caller at the same moment gets nothing.
 create or replace function public.claim_recording() returns setof public.recordings

@@ -36,7 +36,8 @@ function seed() {
     item(3, { type: "reminder", text: "Call the county about the permit", due_at: hours(20), said: "Thursday morning", at_ms: 655000 }),
     item(4, { type: "reminder", text: "Check in with Sam on timing", said: "sometime next week", state: "suggested", needs_review: true }),
     item(5, { text: "Investigate whether the Corona invoices posted to account 60650 were assigned to the correct account and confirm the appropriate classification", recording_id: REC.budget, created_at: hours(-25) }),
-    item(6, { text: "Order filter for the furnace", state: "done", recording_id: null, created_at: hours(-90) }),
+    item(6, { text: "Order filter for the furnace", state: "done", done_at: hours(-80), recording_id: null, created_at: hours(-90) }),
+    item(7, { text: "Book the dock inspection", state: "done", done_at: new Date().toISOString(), created_at: hours(-49) }),
   ];
   const utterances: Row[] = [
     { recording_id: REC.dock, idx: 0, speaker: "A", start_ms: 412000, end_ms: 416000, text: "I'll send you the survey tonight." },
@@ -45,7 +46,9 @@ function seed() {
   ];
   return { recordings, items, utterances, folders: [] as Row[], settings: { model_mode: "auto", apple_reminders: true } as Row, searches: [] as Row[], oldSearch: false, offline: false, dropped: {} as Record<string, number>, zeusAsked: [] as Row[], actions: [] as Row[],
     zeusReply: "Two things are outstanding.\n\n1. Email Sam the property survey.\n2. Call the county about the permit, due tomorrow morning.\n\n✓ Added reminder: Call Sam (Fri 13 Nov, 3:00 PM)\n",
-    itemPatches: [] as Row[] };
+    itemPatches: [] as Row[],
+    // Plays a database set up before completion times existed: no done_at column.
+    noDoneAt: false };
 }
 
 async function mockBackend(page: Page) {
@@ -126,11 +129,17 @@ async function mockBackend(page: Page) {
       return send(db.folders.filter((f) => !eq("id") || f.id === eq("id")).sort((a, b) => String(a.name).localeCompare(String(b.name))));
     }
     if (url.pathname === "/rest/v1/items") {
+      if (db.noDoneAt && ((q.get("select") ?? "").includes("done_at") || q.has("done_at") || (q.get("order") ?? "").includes("done_at"))) {
+        return json(route, { code: "42703", message: "column items.done_at does not exist" }, 400);
+      }
       if (req.method() === "POST") { db.items.unshift({ id: `bbbbbbbb-0000-4000-8000-9${String(db.items.length).padStart(11, "0")}`, recording_id: null, due_at: null, said: null, quote: null, at_ms: null, needs_review: false, notified_at: null, apple_sent_at: null, created_at: new Date().toISOString(), ...(req.postDataJSON() as Row) }); return json(route, [], 201); }
       if (req.method() === "PATCH") {
         const ids = inList("id") ?? [eq("id")];
-        db.itemPatches.push({ ids, ...(req.postDataJSON() as Row) });
-        db.items = db.items.map((i) => (ids.includes(i.id as string) ? { ...i, ...(req.postDataJSON() as Row) } : i));
+        const change = req.postDataJSON() as Row;
+        db.itemPatches.push({ ids, ...change });
+        // As the database trigger does: stamped when an item becomes done, cleared when it is opened again.
+        const stamp = (i: Row): Row => (db.noDoneAt || !("state" in change) ? {} : change.state === "done" ? { done_at: i.state === "done" ? i.done_at : new Date().toISOString() } : { done_at: null });
+        db.items = db.items.map((i) => (ids.includes(i.id as string) ? { ...i, ...change, ...stamp(i) } : i));
         return json(route, []);
       }
       let rows = db.items.slice();
@@ -140,6 +149,7 @@ async function mockBackend(page: Page) {
       if (q.get("state") === "neq.dismissed") rows = rows.filter((i) => i.state !== "dismissed");
       if (eq("type")) rows = rows.filter((i) => i.type === eq("type"));
       if (eq("state")) rows = rows.filter((i) => i.state === eq("state"));
+      if (q.get("done_at")?.startsWith("gte.")) rows = rows.filter((i) => i.done_at && String(i.done_at) >= q.get("done_at")!.slice(4));
       if (q.get("due_at")?.startsWith("lt.")) rows = rows.filter((i) => i.due_at && String(i.due_at) < q.get("due_at")!.slice(3));
       if ((q.get("select") ?? "").includes("recording:recordings")) {
         rows = rows.map((i) => {
@@ -147,6 +157,8 @@ async function mockBackend(page: Page) {
           return { ...i, recording: r ? { title: r.title, started_at: r.started_at, deleted_at: r.deleted_at } : null };
         });
       }
+      // A database without the column cannot return it.
+      if (db.noDoneAt) rows = rows.map((i) => Object.fromEntries(Object.entries(i).filter(([k]) => k !== "done_at")));
       return send(rows);
     }
     if (url.pathname === "/rest/v1/utterances") return send(db.utterances.filter((u) => u.recording_id === eq("recording_id")));
@@ -323,9 +335,29 @@ test("walk through every screen with realistic data", async ({ page }) => {
   await expect(page.getByTestId("item-source").first()).toContainText("•");
   await expect(page.getByTestId("apple-send")).toContainText("Send 4 to Apple Reminders");
   await shot(page, "07-todos");
-  // Completing an item moves it to Done
+  // Done today holds what was completed today; older completed items are not on the screen.
+  const doneToday = page.locator("section", { has: page.getByText("Done today", { exact: true }) });
+  await expect(doneToday.getByTestId("item")).toHaveCount(1);
+  await expect(doneToday).toContainText("Book the dock inspection");
+  await expect(page.getByText("Order filter for the furnace")).toHaveCount(0);
+  // Completing an item moves it to Done today, most recent first
   await page.getByLabel("Done: Email Sam the property survey").check();
   await expect.poll(() => db.items.find((i) => i.text === "Email Sam the property survey")?.state).toBe("done");
+  await expect(doneToday.getByTestId("item")).toHaveCount(2);
+  await expect(doneToday.getByTestId("item").first()).toContainText("Email Sam the property survey");
+  // Older completed items are kept and come back on request; opening one again returns it to the open list.
+  await page.getByTestId("show-earlier").click();
+  const earlier = page.getByTestId("earlier");
+  await expect(earlier).toContainText("Completed earlier");
+  await expect(earlier.getByTestId("item")).toHaveCount(1);
+  await expect(earlier).toContainText("Order filter for the furnace");
+  await expect(earlier).toContainText("Done ");
+  await shot(page, "07b-todos-earlier");
+  // A click, not uncheck(): the row leaves this list the moment it is opened again.
+  await earlier.getByLabel("Done: Order filter for the furnace").click();
+  await expect.poll(() => db.items.find((i) => i.text === "Order filter for the furnace")?.state).toBe("active");
+  await expect(earlier.getByTestId("item")).toHaveCount(0);
+  await expect(page.locator("section", { has: page.getByText("To do", { exact: true }) })).toContainText("Order filter for the furnace");
   // Keeping a suggested item makes it active
   await page.getByRole("button", { name: "Keep" }).click();
   await expect.poll(() => db.items.find((i) => i.text === "Check in with Sam on timing")?.state).toBe("active");
@@ -384,6 +416,7 @@ test("walk through every screen with realistic data", async ({ page }) => {
   await expect(page.getByTestId("about-cost")).toContainText("not your AssemblyAI or Claude bill");
   await expect(page.getByTestId("about-privacy")).toContainText("Audio is sent to AssemblyAI");
   await expect(page.getByTestId("about-zeus")).toContainText("Claude Sonnet 5.5");
+  await expect(page.getByTestId("about-items")).toContainText("stays there until midnight");
   await expect(page.getByTestId("about-recording")).toContainText("Leaving the app open in the background");
   await expect(page.getByTestId("about-conversations")).toContainText("Swipe a conversation left to delete it");
   await expect(page.getByTestId("account-id")).toHaveText(USER_ID);
@@ -633,4 +666,23 @@ test("Zeus asks before removing an item or marking it done, and names the item f
   await page.getByTestId("saved-chat").click();
   await expect(page.getByTestId("turn-assistant")).toContainText("✓ Removed: Email Sam the property survey");
   await expect(cards).toHaveCount(0);
+});
+
+test("before the setup script is run again, Done works as it used to", async ({ page }) => {
+  const db = await mockBackend(page);
+  db.noDoneAt = true;
+  await page.goto("/todos");
+  await page.getByLabel("Email").fill("daniel@example.com");
+  await page.getByLabel("Password").fill("pw");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  // No completion times: the old "Done" list, newest created first, with every completed item.
+  const done = page.locator("section", { has: page.getByText("Done", { exact: true }) });
+  await expect(done.getByTestId("item")).toHaveCount(2);
+  await expect(done).toContainText("Order filter for the furnace");
+  await expect(page.getByText("Done today", { exact: true })).toHaveCount(0);
+  // Open items still load, and ticking still works.
+  await expect(page.getByText("Overdue")).toBeVisible();
+  await page.getByLabel("Done: Email Sam the property survey").check();
+  await expect.poll(() => db.items.find((i) => i.text === "Email Sam the property survey")?.state).toBe("done");
+  await expect(done.getByTestId("item")).toHaveCount(3);
 });

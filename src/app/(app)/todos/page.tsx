@@ -5,10 +5,13 @@ import { useCallback, useEffect, useState } from "react";
 import { useApp } from "@/components/AppShell";
 import HomeHeader from "@/components/HomeHeader";
 import { APPLE_MAX_ITEMS, appleRemindersLink } from "@/lib/apple";
+import { byDoneAt, doneToday, startOfToday } from "@/lib/done";
 import { localIso, when } from "@/lib/format";
 import { ITEM_COLUMNS, type Item } from "@/lib/types";
 
 const day = (iso: string) => new Date(iso).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+/** Older completed items load this many at a time. */
+const EARLIER_PAGE = 50;
 
 function Row({ item, pill, onToggle, children }: { item: Item; pill?: React.ReactNode; onToggle: (i: Item) => void; children?: React.ReactNode }) {
   return (
@@ -37,21 +40,51 @@ export default function TodosPage() {
   const { db, trash, refreshOverdue } = useApp();
   const [items, setItems] = useState<Item[] | null>(null);
   const [apple, setApple] = useState(false);
+  // Completed before today: not loaded until asked for. withDoneAt is false on a database set up before
+  // completion times existed, where Done shows the 15 newest completed items as it used to.
+  const [earlier, setEarlier] = useState<{ list: Item[]; read: number; more: boolean } | null>(null);
+  const [withDoneAt, setWithDoneAt] = useState(true);
   const [sent, setSent] = useState<string[]>([]);
   const [newText, setNewText] = useState("");
   const [dates, setDates] = useState<Record<string, string>>({});
 
+  const source = `recording:recordings(title, started_at${trash ? ", deleted_at" : ""})`;
   const load = useCallback(async () => {
-    const [{ data }, { data: settings }] = await Promise.all([
-      db.from("items").select(`${ITEM_COLUMNS}, recording:recordings(title, started_at${trash ? ", deleted_at" : ""})`)
-        .eq("is_test", false).in("state", ["suggested", "active", "done"]).order("created_at", { ascending: false }).limit(300),
+    // Open items and today's completed ones are read separately, so completed items piling up can never
+    // push an open one off the list.
+    const [{ data: open }, today, { data: settings }] = await Promise.all([
+      db.from("items").select(`${ITEM_COLUMNS}, ${source}`)
+        .eq("is_test", false).in("state", ["suggested", "active"]).order("created_at", { ascending: false }).limit(500),
+      db.from("items").select(`${ITEM_COLUMNS}, done_at, ${source}`)
+        .eq("is_test", false).eq("state", "done").gte("done_at", startOfToday().toISOString()).order("done_at", { ascending: false }),
       db.from("settings").select("apple_reminders").maybeSingle(),
     ]);
+    let done = today.data as unknown as Item[] | null;
+    setWithDoneAt(!today.error);
+    if (today.error) {
+      // A database without completion times (the setup script not yet run again): Done as it used to be.
+      const old = await db.from("items").select(`${ITEM_COLUMNS}, ${source}`)
+        .eq("is_test", false).eq("state", "done").order("created_at", { ascending: false }).limit(15);
+      done = old.data as unknown as Item[] | null;
+    }
     // Items from a recording that is in Trash are hidden until it is restored.
-    setItems(((data as unknown as Item[]) ?? []).filter((i) => !i.recording?.deleted_at));
+    setItems([...((open as unknown as Item[]) ?? []), ...(done ?? [])].filter((i) => !i.recording?.deleted_at));
+    setEarlier(null);
     setApple(settings?.apple_reminders ?? false);
     refreshOverdue();
-  }, [db, trash, refreshOverdue]);
+  }, [db, source, refreshOverdue]);
+
+  const showEarlier = async () => {
+    const read = earlier?.read ?? 0;
+    let q = db.from("items").select(`${ITEM_COLUMNS}${withDoneAt ? ", done_at" : ""}, ${source}`).eq("is_test", false).eq("state", "done");
+    if (withDoneAt) q = q.order("done_at", { ascending: false, nullsFirst: false });
+    const { data } = await q.order("created_at", { ascending: false }).range(read, read + EARLIER_PAGE - 1);
+    const page = (data as unknown as Item[] | null) ?? [];
+    // What Done today already shows, or Trash hides, is left out.
+    const shown = new Set((items ?? []).map((i) => i.id));
+    const fresh = page.filter((i) => !shown.has(i.id) && !doneToday(i) && !i.recording?.deleted_at);
+    setEarlier({ list: [...(earlier?.list ?? []), ...fresh], read: read + page.length, more: page.length === EARLIER_PAGE });
+  };
   useEffect(() => {
     let live = true;
     (async () => { if (live) await load(); })();
@@ -59,7 +92,12 @@ export default function TodosPage() {
   }, [load]);
 
   const patch = async (ids: string[], values: Partial<Item>) => {
-    setItems((list) => list?.map((i) => (ids.includes(i.id) ? { ...i, ...values } : i)) ?? null);
+    // The database stamps the completion time itself; this copy only places the item on screen meanwhile.
+    const stamp = values.state ? { done_at: values.state === "done" ? new Date().toISOString() : null } : {};
+    // An older completed item opened again moves up to the open lists.
+    const reopened = values.state && values.state !== "done" ? (earlier?.list ?? []).filter((i) => ids.includes(i.id)) : [];
+    setItems((list) => [...(list?.map((i) => (ids.includes(i.id) ? { ...i, ...values, ...stamp } : i)) ?? []), ...reopened.map((i) => ({ ...i, ...values, ...stamp }))]);
+    if (reopened.length) setEarlier((e) => e && { ...e, list: e.list.filter((i) => !ids.includes(i.id)) });
     await db.from("items").update(values).in("id", ids);
     refreshOverdue();
   };
@@ -75,7 +113,7 @@ export default function TodosPage() {
   const upcoming = dated.filter((i) => new Date(i.due_at!).getTime() > endOfToday.getTime());
   const undated = active.filter((i) => !i.due_at);
   const review = items.filter((i) => i.state === "suggested");
-  const doneItems = items.filter((i) => i.state === "done").slice(0, 15);
+  const doneItems = items.filter((i) => doneToday(i)).sort(byDoneAt);
   const forApple = active.filter((i) => !i.apple_sent_at).slice(0, APPLE_MAX_ITEMS);
 
   const sendToApple = async () => {
@@ -150,8 +188,20 @@ export default function TodosPage() {
         <button className="btn">Add</button>
       </form>
 
-      {section("Done", doneItems, () => null)}
-      {active.length + review.length + doneItems.length === 0 && <p className="muted">Nothing yet. Record something and its to-dos will appear here.</p>}
+      {section(withDoneAt ? "Done today" : "Done", doneItems, () => null)}
+      {active.length + review.length + doneItems.length === 0 && !earlier && <p className="muted">Nothing yet. Record something and its to-dos will appear here.</p>}
+
+      {/* Completed before today: kept, and here on request. Each stays in its conversation and in search too. */}
+      {!earlier ? (
+        <button className="btn small secondary" style={{ alignSelf: "center" }} onClick={() => void showEarlier()} data-testid="show-earlier">Show earlier</button>
+      ) : (
+        <section className="card" data-testid="earlier">
+          <div className="label">Completed earlier</div>
+          {earlier.list.length === 0 && <p className="small muted">Nothing completed before today.</p>}
+          {earlier.list.map((i) => <Row key={i.id} item={i} onToggle={toggle} pill={i.done_at ? <span className="pill">Done {day(i.done_at)}</span> : null} />)}
+          {earlier.more && <button className="btn small secondary" onClick={() => void showEarlier()}>Show more</button>}
+        </section>
+      )}
     </>
   );
 }
