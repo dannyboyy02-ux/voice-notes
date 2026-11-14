@@ -30,6 +30,9 @@ export type TickReport = {
 const SIGNED_URL_SECONDS = 3 * 3600;
 const POLL_ERROR_LIMIT = 8;
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
+/** True when a recording's audio path is inside its owner's own folder of the bucket. */
+export const inOwnFolder = (r: { user_id: string; storage_path: string | null }) =>
+  Boolean(r.storage_path && r.user_id && r.storage_path.startsWith(`${r.user_id}/`) && !r.storage_path.includes(".."));
 
 async function fail(rec: Rec, step: WorkStep, error: string) {
   const patch = onStepFailure(step, rec.attempts, error);
@@ -43,7 +46,7 @@ async function startTranscription(rec: Rec): Promise<string> {
   if (rec.aai_transcript_id) return "already submitted";
   if (!rec.storage_path) throw new Error("The recording has no audio file.");
   // The service role can sign any path, so only ever sign a file inside this recording's own folder.
-  if (!rec.storage_path.startsWith(`${rec.user_id}/`)) throw new Error("The audio file does not belong to this recording.");
+  if (!inOwnFolder(rec)) throw new Error("The audio file does not belong to this recording.");
   const signed = await db.storage.from(AUDIO_BUCKET).createSignedUrl(rec.storage_path, SIGNED_URL_SECONDS);
   if (signed.error || !signed.data) throw new Error(`Could not sign the audio link: ${signed.error?.message}`);
   const id = await submitTranscript(signed.data.signedUrl);
@@ -201,6 +204,12 @@ export async function runTick(budgetMs = 240_000): Promise<TickReport> {
     const { data: polling, error } = await db.rpc("claim_poll");
     if (error) throw new Error(error.message);
     for (const rec of (polling ?? []) as Rec[]) {
+      // As in step 4: a transcript is saved only for the owner's recordings, whatever is in the table.
+      if (owner && rec.user_id !== owner) {
+        await db.from("recordings").update({ status: "failed", failed_step: "transcribing", aai_transcript_id: null, locked_until: null, last_error: "Not the owner's recording." }).eq("id", rec.id);
+        report.polled.push({ id: rec.id, result: "skipped: not the owner's" });
+        continue;
+      }
       try { report.polled.push({ id: rec.id, result: await pollTranscription(rec) }); }
       catch (e) {
         // A poll that keeps failing must not leave the recording "Transcribing" for ever: count it, and
@@ -244,9 +253,18 @@ export async function runTick(budgetMs = 240_000): Promise<TickReport> {
   // 5. Audio deletes itself 30 days after the transcript is ready. The transcript and items stay.
   try {
     const cutoff = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
-    const { data: old } = await db.from("recordings").select("id, storage_path").eq("status", "ready")
-      .not("storage_path", "is", null).is("audio_deleted_at", null).lt("ready_at", cutoff).limit(20);
+    let q = db.from("recordings").select("id, user_id, storage_path").eq("status", "ready")
+      .not("storage_path", "is", null).is("audio_deleted_at", null).lt("ready_at", cutoff);
+    if (owner) q = q.eq("user_id", owner);
+    const { data: old } = await q.limit(20);
     for (const r of old ?? []) {
+      // The service role can delete any file, so only ever delete one inside the recording's own folder.
+      // A link to a file elsewhere is dropped and the file is left alone.
+      if (!inOwnFolder(r)) {
+        await db.from("recordings").update({ storage_path: null }).eq("id", r.id);
+        report.errors.push(`audio delete: recording ${r.id} pointed outside its own folder; the link was dropped and no file was deleted`);
+        continue;
+      }
       const { error } = await db.storage.from(AUDIO_BUCKET).remove([r.storage_path]);
       if (error) { report.errors.push(`audio delete: ${error.message}`); continue; }
       await db.from("recordings").update({ audio_deleted_at: new Date().toISOString(), storage_path: null }).eq("id", r.id);
@@ -258,9 +276,13 @@ export async function runTick(budgetMs = 240_000): Promise<TickReport> {
   try {
     if (await hasTrash()) {
       const cutoff = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
-      const { data: gone } = await db.from("recordings").select("id, storage_path").lt("deleted_at", cutoff).limit(20);
+      let q = db.from("recordings").select("id, user_id, storage_path").lt("deleted_at", cutoff);
+      if (owner) q = q.eq("user_id", owner);
+      const { data: gone } = await q.limit(20);
       for (const r of gone ?? []) {
-        if (r.storage_path) {
+        if (r.storage_path && !inOwnFolder(r)) {
+          report.errors.push(`trash audio: recording ${r.id} pointed outside its own folder; no file was deleted`);
+        } else if (r.storage_path) {
           // If the audio cannot be removed, keep the row so the next tick tries again instead of orphaning the file.
           const gone = await db.storage.from(AUDIO_BUCKET).remove([r.storage_path]);
           if (gone.error) { report.errors.push(`trash audio: ${gone.error.message}`); continue; }

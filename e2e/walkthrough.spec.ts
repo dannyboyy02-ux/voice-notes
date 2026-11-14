@@ -86,6 +86,9 @@ async function mockBackend(page: Page) {
 
     if (url.pathname === "/rest/v1/recordings") {
       if (req.method() === "PATCH") {
+        // As in supabase/setup.sql, the phone may change only these two columns of a recording.
+        const bad = Object.keys(req.postDataJSON() as Row).filter((c) => !["folder_id", "deleted_at"].includes(c));
+        if (bad.length) return json(route, { code: "42501", message: `permission denied for table recordings (${bad.join(", ")})` }, 403);
         const ids = inList("id") ?? [eq("id")];
         db.recordings = db.recordings.map((r) => (ids.includes(r.id as string) ? { ...r, ...(req.postDataJSON() as Row) } : r));
         return json(route, []);

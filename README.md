@@ -16,7 +16,7 @@ A personal iPhone home-screen web app. Record a thought or a meeting; a minute o
 - **Look**: dark grey to black by default. Settings > Appearance switches to Light or follows the phone; the choice is kept on the phone.
 - **To-dos**: each item shows the recording it came from and that recording's date, and opens it at the moment it was said.
 - **Phone**: records in the browser, writes a chunk to IndexedDB every 5 seconds, and uploads straight to Supabase Storage in resumable 6 MB pieces. Audio stays on the phone until the server confirms the recording.
-- **Supabase**: login (email and password, sign-ups off), database with row-level security, a private `audio` bucket, and the scheduler. Every row and file rule also requires the owner's account (`public.is_owner()`), so another account could read and write nothing even if sign-ups were switched on by mistake. The owner's id is saved in `private.app_config` by `/api/sync` on each app open (from `OWNER_USER_ID`), or by the setup script when the project has exactly one account. `pg_cron` runs every minute and uses `pg_net` to call `/api/tick` only when work is waiting.
+- **Supabase**: login (email and password, sign-ups off), database with row-level security, a private `audio` bucket, and the scheduler. Every row and file rule also requires the owner's account (`public.is_owner()`), so another account could read and write nothing even if sign-ups were switched on by mistake. Of a recording, the phone may write only the upload's own columns and, afterwards, its folder and Trash date; its status, transcript id, costs and dates are the server's. The owner's id is saved in `private.app_config` by `/api/sync` on each app open (from `OWNER_USER_ID`), or by the setup script when the project has exactly one account. `pg_cron` runs every minute and uses `pg_net` to call `/api/tick` only when work is waiting.
 - **Vercel**: the Next.js app and the worker. Each tick claims one step at a time: `uploaded > transcribing > transcribed > extracting > ready`, or `failed` after three attempts, with a Retry button.
 - **Fast start**: when an upload is confirmed the phone calls `/api/kick`, which runs the same worker passes every few seconds until the recording is ready. The once-a-minute scheduler stays as the safety net for retries, reminders and anything the fast path misses.
 - **Zeus**: an in-app chat (`/zeus`, Claude Sonnet 5.5) for reviewing recordings. From a note it reads that recording's full transcript; from the Zeus tab it reads the 40 most recent summaries and items plus transcript lines matching the question. It has three tools, all limited to the owner's to-dos and reminders: add, update (wording, due time, done or active) and remove. Removal is a soft delete (the row is kept as dismissed). Every change is written into the reply as a `✓` line. Transcripts are treated as material, never instructions, and the self-test runs Zeus with the tools switched off. Chats are saved in the phone's browser storage only, and their cost is not in the Settings estimate.
@@ -34,9 +34,9 @@ A personal iPhone home-screen web app. Record a thought or a meeting; a minute o
 1. Supabase: turn off new sign-ups (Authentication > Sign In / Providers) and add your user (Authentication > Users > Add user, auto-confirm on). The user's UID is the value for `OWNER_USER_ID`.
 2. Supabase SQL editor: run the whole of `supabase/setup.sql`.
    - Paste the file's contents, not its name. On GitHub, the "Copy raw file" button copies all of it.
-   - Check the paste is complete: the last line is `select id, email, created_at from auth.users order by created_at;`.
+   - Check the paste is complete: the last line ends `order by u.created_at;`.
    - Run with nothing highlighted and accept the "destructive operations" warning (the script drops and recreates its own policies so it can be re-run).
-   - A complete run ends with a small table of users. Plain "Success" with no table usually means only part of the file was pasted.
+   - A complete run ends with a small table of users, with `is_owner` true for yours (it is blank until the app has been opened once, if the project has more than one user). Plain "Success" with no table usually means only part of the file was pasted.
    - The script is safe to run again, and running it again is how database fixes in later versions are picked up.
 3. Vercel environment variables:
 
@@ -93,7 +93,7 @@ Behaviours worth knowing:
 - After an upload the fast path stops at the first failed step; the scheduler retries a minute later, up to three attempts.
 - A transcription that cannot be read back eight times in a row stops as failed with Retry. A job the speech service leaves queued indefinitely is not detected.
 - A reminder is marked as sent before the push goes out, so it is sent at most once; if the push fails it shows only as overdue in the app.
-- The worker only processes recordings belonging to `OWNER_USER_ID`, and only signs audio paths inside that user's folder.
+- The worker only processes, polls, cleans up and empties Trash for recordings belonging to `OWNER_USER_ID`, and only signs or deletes audio files inside that user's folder.
 
 Known issue: databases set up before pull request 3 do not record the "last tick" stamp, because Supabase rejects an `UPDATE` without `WHERE` from API roles. Nothing depends on it; re-running `supabase/setup.sql` fixes it.
 

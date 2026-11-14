@@ -188,6 +188,17 @@ end $$;
 revoke all on all tables in schema public from anon;
 revoke all on schema private from anon, authenticated;
 
+-- The phone may set only these columns of a recording. Status, transcript ids, costs, dates and the
+-- rest are the server's: the background worker trusts them, so a client must not be able to change them.
+revoke insert, update on public.recordings from authenticated;
+grant insert (id, user_id, started_at, time_zone, duration_ms, storage_path, mime_type, bytes, part, folder_id)
+  on public.recordings to authenticated;
+grant update (folder_id, deleted_at) on public.recordings to authenticated;
+-- A new recording can only point at a file in the owner's own folder.
+drop policy if exists own_audio_path on public.recordings;
+create policy own_audio_path on public.recordings as restrictive for insert to authenticated
+  with check (storage_path is null or storage_path like (select auth.uid())::text || '/%');
+
 -- ---------------------------------------------------------------- private audio bucket
 insert into storage.buckets (id, name, public, file_size_limit)
 values ('audio', 'audio', false, 52428800)
