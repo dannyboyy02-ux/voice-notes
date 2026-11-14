@@ -181,7 +181,9 @@ export async function runTick(budgetMs = 240_000): Promise<TickReport> {
       if (owner && item.user_id !== owner) continue;
       let via = "in-app only";
       try {
-        const r = await sendPush(item.user_id, { title: "Reminder", body: item.text, url: "/todos", tag: `item-${item.id}` });
+        // A reminder taken from a recording says so, so one planted by someone else's words is easy to spot.
+        const title = item.recording_id ? "Reminder from a recording" : "Reminder";
+        const r = await sendPush(item.user_id, { title, body: item.text, url: "/todos", tag: `item-${item.id}` });
         via = r.subscriptions === 0 ? "in-app only (no phone subscribed)" : `push sent to ${r.sent} of ${r.subscriptions}`;
         if (r.errors.length) via += `; ${r.errors[0]}`;
       } catch (e) {

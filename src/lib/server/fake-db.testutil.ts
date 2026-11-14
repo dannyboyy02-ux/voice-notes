@@ -25,7 +25,12 @@ export function fakeDb(tables: Record<string, Row[]>, rpcs: Record<string, () =>
     const run = (): Result => {
       const rows = tables[table];
       const hit = rows.filter((r) => filters.every((f) => f(r)));
-      if (op === "insert") { rows.push(...inserted.map((r) => ({ ...r }))); return { data: null, error: null }; }
+      if (op === "insert") {
+        const made = inserted.map((r) => ({ id: crypto.randomUUID(), ...r }));
+        rows.push(...made);
+        calls.push(`insert ${table} ${made.length}`);
+        return { data: one ? { ...made[0] } : made.map((r) => ({ ...r })), error: null };
+      }
       if (op === "update") { for (const r of hit) Object.assign(r, patch); calls.push(`update ${table} ${JSON.stringify(patch)}`); return { data: null, error: null }; }
       if (op === "delete") { tables[table] = rows.filter((r) => !hit.includes(r)); calls.push(`delete ${table} ${hit.length}`); return { data: null, error: null }; }
       if (head) return { data: null, error: null, count: hit.length };

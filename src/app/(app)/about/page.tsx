@@ -55,7 +55,8 @@ export default function AboutPage() {
         <ul>
           <li>From the Zeus tab, Zeus reads your 40 most recent conversations (their summaries, to-dos and reminders) plus the transcript lines that match your question.</li>
           <li>Inside a conversation, under the lightning bolt, Zeus reads that conversation&apos;s whole transcript.</li>
-          <li>Zeus can add, change, complete or remove to-dos and reminders when you ask. Each change is shown with a ✓. It cannot change recordings, transcripts or summaries.</li>
+          <li>Zeus can add, change, complete or remove to-dos and reminders when you ask. Each change is shown with a ✓. Before an item is removed or marked done, Zeus shows it with a button, and nothing happens until you tap it. It cannot change recordings, transcripts or summaries.</li>
+          <li>Someone else&apos;s words in a recording are never instructions to Zeus. A reminder taken from a recording arrives as &quot;Reminder from a recording&quot;, so you can tell it from one you added.</li>
           <li>Zeus runs on Claude Sonnet 5.5. Chats are saved on this phone only.</li>
         </ul>
       </section>

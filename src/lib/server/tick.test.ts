@@ -7,7 +7,8 @@ vi.mock("./db", () => ({ adminDb: () => db.client, AUDIO_BUCKET: "audio" }));
 const stt = vi.hoisted(() => ({ getTranscript: vi.fn(), submitTranscript: vi.fn(), deleteTranscript: vi.fn() }));
 vi.mock("./stt", () => stt);
 vi.mock("./extract", () => ({ runExtraction: vi.fn() }));
-vi.mock("./push", () => ({ sendPush: vi.fn() }));
+const push = vi.hoisted(() => ({ sendPush: vi.fn() }));
+vi.mock("./push", () => push);
 
 const { runTick, inOwnFolder } = await import("./tick");
 
@@ -99,5 +100,21 @@ describe("inOwnFolder", () => {
     expect(inOwnFolder({ user_id: OWNER, storage_path: `${OWNER}a.m4a` })).toBe(false);
     expect(inOwnFolder({ user_id: "", storage_path: "/a.m4a" })).toBe(false);
     expect(inOwnFolder({ user_id: OWNER, storage_path: null })).toBe(false);
+  });
+});
+
+describe("worker: reminder notifications", () => {
+  it("says when a reminder came from a recording, so one planted by someone else's words stands out", async () => {
+    push.sendPush.mockReset().mockResolvedValue({ subscriptions: 1, sent: 1, errors: [] });
+    const due = [
+      { id: "from-rec", user_id: OWNER, text: "Call the bank on 555-0100", recording_id: "r" },
+      { id: "by-hand", user_id: OWNER, text: "Renew registration", recording_id: null },
+    ];
+    db = fakeDb({ recordings: [], items: due.map((d) => ({ ...d })) }, { claim_due_reminders: () => due });
+    await runTick(5_000);
+    expect(push.sendPush.mock.calls.map((c) => [c[1].title, c[1].body])).toEqual([
+      ["Reminder from a recording", "Call the bank on 555-0100"],
+      ["Reminder", "Renew registration"],
+    ]);
   });
 });
