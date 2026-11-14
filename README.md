@@ -50,7 +50,7 @@ A personal iPhone home-screen web app. Record a thought or a meeting; a minute o
    | `ANTHROPIC_API_KEY` | Claude API key | Production |
    | `OWNER_USER_ID` | Your Supabase user UID (not a secret) | Production |
    | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | A pair made in your browser at `/keys` | Production |
-   | `SELFTEST_SECRET` | Any long random string; protects `/api/selftest` | Production |
+   | `SELFTEST_SECRET` | Any long random string; protects `/api/selftest`. Leave it unset to switch the self-test off | Production, optional |
 
    Secrets live only in these variables. The scheduler's own secret is generated inside the database by the setup script, and the app tells the database its own address on each sign-in and self-test.
 4. Deploy, open the app on the iPhone in Safari, add it to the Home Screen, open it from the icon and sign in.
@@ -64,7 +64,7 @@ npm test        # 80 unit tests, then 12 Playwright tests (one walks every scree
 npm run build
 ```
 
-- `/api/selftest?key=<SELFTEST_SECRET>&action=start` uploads a spoken sample and lets the real scheduler drive it; call it again without `action` about once a minute until `done` is true. Add `&fast=1` to drive the run with the fast path the phone uses. It checks: uploaded to ready, a to-do, a dated reminder, a due reminder sent by the tick, a Zeus answer about the sample, and test rows removed.
+- `/api/selftest?action=start`, with the secret in an `x-selftest-secret` header (never in the address, which ends up in logs and history), uploads a spoken sample and lets the real scheduler drive it; call it again without `action` about once a minute until `done` is true. Add `&fast=1` to drive the run with the fast path the phone uses. For example: `curl -H "x-selftest-secret: $SELFTEST_SECRET" "https://voice-notes-beige.vercel.app/api/selftest?action=start"`. Without `SELFTEST_SECRET` set in Vercel the endpoint is switched off. It checks: uploaded to ready, a to-do, a dated reminder, a due reminder sent by the tick, a Zeus answer about the sample, and test rows removed.
 - If something is not set up, the same endpoint says what: missing variable names, or which Supabase project it is connected to and which tables, bucket or functions it cannot find.
 - `/phone-check` tests what the iPhone itself allows (formats, real bytes per second, joined-chunk playback, wake lock, interruption, the Shortcuts link).
 

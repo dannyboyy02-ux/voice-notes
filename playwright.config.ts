@@ -23,5 +23,7 @@ export default defineConfig({
     url: `http://localhost:${PORT}/manifest.webmanifest`,
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
+    // Test-only values, added to the environment: a self-test secret for e2e/api.spec.ts to present.
+    env: { SELFTEST_SECRET: "e2e-selftest-secret-0123456789abcdef" },
   },
 });
