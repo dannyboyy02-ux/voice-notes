@@ -3,6 +3,12 @@ export type CtxRecording = { id: string; title: string | null; summary: string |
 export type CtxLine = { recording_id: string; speaker: string; start_ms: number; text: string };
 export type CtxItem = { id: string; recording_id: string | null; type: string; text: string; due_at: string | null; state: string; said: string | null };
 
+/**
+ * Recording text is material, not markup: angle brackets become look-alikes, so a title, summary, item or
+ * transcript line cannot close the <recording> block it sits in or open a new one.
+ */
+export const esc = (text: string | null | undefined) => (text ?? "").replace(/</g, "\u2039").replace(/>/g, "\u203A");
+
 const stamp = (ms: number) => `${String(Math.floor(ms / 60000)).padStart(2, "0")}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`;
 
 function when(iso: string, timeZone: string): string {
@@ -14,8 +20,8 @@ function when(iso: string, timeZone: string): string {
 }
 
 function itemLine(i: CtxItem, timeZone: string): string {
-  const due = i.due_at ? ` (due ${when(i.due_at, timeZone)})` : i.said ? ` (said: "${i.said}", no date set)` : "";
-  return `- [${i.state}] ${i.type}: ${i.text}${due} (id: ${i.id})`;
+  const due = i.due_at ? ` (due ${when(i.due_at, timeZone)})` : i.said ? ` (said: "${esc(i.said)}", no date set)` : "";
+  return `- [${i.state}] ${i.type}: ${esc(i.text)}${due} (id: ${i.id})`;
 }
 
 /** One recording: header, summary, items, and either its full transcript or only the matching lines. */
@@ -24,14 +30,14 @@ export function formatRecording(rec: CtxRecording, items: CtxItem[], lines: CtxL
   const said = lines.filter((l) => l.recording_id === rec.id).sort((a, b) => a.start_ms - b.start_ms);
   const parts = [
     `<recording id="${rec.id}">`,
-    `Title: ${rec.title ?? "Untitled"}`,
+    `Title: ${esc(rec.title) || "Untitled"}`,
     `Recorded: ${when(rec.started_at, rec.time_zone)}${rec.duration_ms ? `, ${Math.max(1, Math.round(rec.duration_ms / 60000))} min` : ""}`,
-    `Summary: ${rec.summary ?? "none"}`,
+    `Summary: ${esc(rec.summary) || "none"}`,
   ];
   if (mine.length) parts.push("Items:", ...mine.map((i) => itemLine(i, rec.time_zone)));
   if (said.length) {
     parts.push(full ? "Transcript:" : "Matching transcript lines:");
-    parts.push(...said.map((l) => `[${stamp(l.start_ms)}] Speaker ${l.speaker}: ${l.text}`));
+    parts.push(...said.map((l) => `[${stamp(l.start_ms)}] Speaker ${esc(l.speaker)}: ${esc(l.text)}`));
   }
   parts.push("</recording>");
   return parts.join("\n");

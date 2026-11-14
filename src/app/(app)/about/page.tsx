@@ -55,7 +55,8 @@ export default function AboutPage() {
         <ul>
           <li>From the Zeus tab, Zeus reads your 40 most recent conversations (their summaries, to-dos and reminders) plus the transcript lines that match your question.</li>
           <li>Inside a conversation, under the lightning bolt, Zeus reads that conversation&apos;s whole transcript.</li>
-          <li>Zeus can add, change, complete or remove to-dos and reminders when you ask. Each change is shown with a ✓. It cannot change recordings, transcripts or summaries.</li>
+          <li>Zeus can add, change, complete or remove to-dos and reminders when you ask. Each change is shown with a ✓. Before an item is removed or marked done, Zeus shows it with a button, and nothing happens until you tap it. It cannot change recordings, transcripts or summaries.</li>
+          <li>Someone else&apos;s words in a recording are never instructions to Zeus. A reminder taken from a recording arrives as &quot;Reminder from a recording&quot;, so you can tell it from one you added.</li>
           <li>Zeus runs on Claude Sonnet 5.5. Chats are saved on this phone only.</li>
         </ul>
       </section>
@@ -81,7 +82,8 @@ export default function AboutPage() {
         <ul>
           <li>Audio is sent to AssemblyAI to be transcribed. The transcript is sent to the Claude API to write the summary, to-dos and reminders.</li>
           <li>When you ask Zeus a question, the relevant transcripts, summaries and items are sent to the Claude API too.</li>
-          <li>Audio is deleted from storage 30 days after processing. Transcripts and items stay until you delete the conversation.</li>
+          <li>AssemblyAI&apos;s copy of the transcript is deleted as soon as the transcript is saved in this app, usually within a minute of it being ready.</li>
+          <li>Audio is deleted from storage 30 days after processing. Transcripts and items stay in this app until you delete the conversation.</li>
           <li>Recording other people can require their consent where you are.</li>
         </ul>
       </section>

@@ -1,21 +1,15 @@
-import { timingSafeEqual } from "node:crypto";
 import { selftest } from "@/lib/server/selftest";
+import { SELFTEST_HEADER, secretInAddress, selftestAllowed } from "@/lib/server/selftest-auth";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-function allowed(req: Request): boolean {
-  const expected = process.env.SELFTEST_SECRET?.trim();
-  if (!expected) return false;
-  const given = new URL(req.url).searchParams.get("key") ?? req.headers.get("x-selftest-secret") ?? "";
-  const a = Buffer.from(given);
-  const b = Buffer.from(expected);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
-
 /** Protected end-to-end check. ?action=start begins a run; calling again reports progress, then the final result. */
 export async function GET(req: Request) {
-  if (!allowed(req)) return Response.json({ error: "forbidden" }, { status: 403 });
+  if (!selftestAllowed(req)) {
+    const hint = secretInAddress(req) ? { hint: `send the secret in the ${SELFTEST_HEADER} header; it is no longer read from the address` } : {};
+    return Response.json({ error: "forbidden", ...hint }, { status: 403, headers: { "cache-control": "no-store" } });
+  }
   try {
     const report = await selftest(req, new URL(req.url).searchParams.get("action"));
     return new Response(JSON.stringify(report, null, 2), { headers: { "content-type": "application/json", "cache-control": "no-store" } });

@@ -5,10 +5,12 @@ import { useEffect, useState } from "react";
 import { useApp } from "./AppShell";
 import Bolt from "./Bolt";
 import SwipeToDelete from "./SwipeToDelete";
+import ZeusAnswer from "./ZeusConfirm";
 import { chatTitle, loadChats, removeChat, saveChat, type SavedChat, type Turn } from "@/lib/client/chats";
 import { accessToken } from "@/lib/client/supabase";
 import { ago } from "@/lib/format";
 import { ASSISTANT_NAME } from "@/lib/models";
+import { settleConfirm } from "@/lib/zeus-confirm";
 
 const STARTERS_ALL = ["What decisions and actions are outstanding?", "What should I prioritize this week?", "What reminders are coming up?"];
 const STARTERS_ONE = ["Summarize the key decisions", "Who agreed to do what?", "What was left unresolved?"];
@@ -89,6 +91,13 @@ export default function ZeusChat({ initialNoteId, title = null, embedded = false
     setBusy(false);
   };
 
+  // The owner tapped a change Zeus proposed: the card becomes a plain line, and the saved chat keeps it.
+  const settle = (index: number, raw: string, outcome: string) => {
+    const next = turns.map((t, i) => (i === index ? { ...t, content: settleConfirm(t.content, raw, outcome) } : t));
+    setTurns(next);
+    saveChat({ id: chatId, title: chatTitle(next[0].content), noteId, noteTitle, turns: next, updatedAt: new Date().toISOString() });
+  };
+
   const newChat = () => { setChatId(crypto.randomUUID()); setTurns([]); setNoteId(noteParam); setHistory(null); };
   const open = (c: SavedChat) => { setChatId(c.id); setTurns(c.turns); setNoteId(c.noteId); setNoteTitle(c.noteTitle); setHistory(null); };
 
@@ -153,7 +162,11 @@ export default function ZeusChat({ initialNoteId, title = null, embedded = false
       {turns.map((t, i) => (
         <div key={i} className="card" style={t.role === "user" ? { background: "var(--accent-soft)", marginLeft: 32 } : { marginRight: 16 }} data-testid={`turn-${t.role}`}>
           <div className="label">{t.role === "user" ? "You" : ASSISTANT_NAME}</div>
-          <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{t.content || (busy && i === turns.length - 1 ? "Thinking…" : "")}</div>
+          <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+            {!t.content ? (busy && i === turns.length - 1 ? "Thinking…" : "")
+              : t.role === "assistant" ? <ZeusAnswer content={t.content} disabled={busy} onSettle={(raw, outcome) => settle(i, raw, outcome)} />
+                : t.content}
+          </div>
         </div>
       ))}
 

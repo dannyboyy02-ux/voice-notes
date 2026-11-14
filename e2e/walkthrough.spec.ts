@@ -10,6 +10,14 @@ const USER_ID = "11111111-2222-4333-8444-555555555555";
 const CORS = { "access-control-allow-origin": "*", "access-control-allow-methods": "*", "access-control-allow-headers": "*", "access-control-expose-headers": "Content-Range" };
 const hours = (n: number) => new Date(Date.now() + n * 3600_000).toISOString();
 
+// Every page must work under the app's Content-Security-Policy: any refusal the browser logs fails the test.
+let cspRefusals: string[] = [];
+test.beforeEach(({ page }) => {
+  cspRefusals = [];
+  page.on("console", (m) => { if (/Content Security Policy/i.test(m.text())) cspRefusals.push(m.text()); });
+});
+test.afterEach(() => { expect(cspRefusals).toEqual([]); });
+
 type Row = Record<string, unknown>;
 const REC = { budget: "aaaaaaaa-0000-4000-8000-000000000001", dock: "aaaaaaaa-0000-4000-8000-000000000002", failed: "aaaaaaaa-0000-4000-8000-000000000003", busy: "aaaaaaaa-0000-4000-8000-000000000004" };
 
@@ -35,7 +43,9 @@ function seed() {
     { recording_id: REC.dock, idx: 1, speaker: "B", start_ms: 417000, end_ms: 421000, text: "Great. Then I can start the 16th." },
     { recording_id: REC.dock, idx: 2, speaker: "A", start_ms: 655000, end_ms: 661000, text: "Remind me Thursday morning to call the county about the permit." },
   ];
-  return { recordings, items, utterances, folders: [] as Row[], settings: { model_mode: "auto", apple_reminders: true } as Row, searches: [] as Row[], oldSearch: false, offline: false, dropped: {} as Record<string, number>, zeusAsked: [] as Row[], actions: [] as Row[] };
+  return { recordings, items, utterances, folders: [] as Row[], settings: { model_mode: "auto", apple_reminders: true } as Row, searches: [] as Row[], oldSearch: false, offline: false, dropped: {} as Record<string, number>, zeusAsked: [] as Row[], actions: [] as Row[],
+    zeusReply: "Two things are outstanding.\n\n1. Email Sam the property survey.\n2. Call the county about the permit, due tomorrow morning.\n\n✓ Added reminder: Call Sam (Fri 13 Nov, 3:00 PM)\n",
+    itemPatches: [] as Row[] };
 }
 
 async function mockBackend(page: Page) {
@@ -50,7 +60,7 @@ async function mockBackend(page: Page) {
     db.actions.push({ id: new URL(r.request().url()).pathname.split("/")[3], ...(r.request().postDataJSON() as Row) });
     return json(r, { ok: true });
   });
-  await page.route("**/api/zeus", (r) => { db.zeusAsked.push(r.request().postDataJSON() as Row); return r.fulfill({ status: 200, headers: { "content-type": "text/plain; charset=utf-8" }, body: "Two things are outstanding.\n\n1. Email Sam the property survey.\n2. Call the county about the permit, due tomorrow morning.\n\n✓ Added reminder: Call Sam (Fri 13 Nov, 3:00 PM)\n" }); });
+  await page.route("**/api/zeus", (r) => { db.zeusAsked.push(r.request().postDataJSON() as Row); return r.fulfill({ status: 200, headers: { "content-type": "text/plain; charset=utf-8" }, body: db.zeusReply }); });
 
   await page.route(`${SUPABASE}/**`, async (route) => {
     const req = route.request();
@@ -86,6 +96,9 @@ async function mockBackend(page: Page) {
 
     if (url.pathname === "/rest/v1/recordings") {
       if (req.method() === "PATCH") {
+        // As in supabase/setup.sql, the phone may change only these two columns of a recording.
+        const bad = Object.keys(req.postDataJSON() as Row).filter((c) => !["folder_id", "deleted_at"].includes(c));
+        if (bad.length) return json(route, { code: "42501", message: `permission denied for table recordings (${bad.join(", ")})` }, 403);
         const ids = inList("id") ?? [eq("id")];
         db.recordings = db.recordings.map((r) => (ids.includes(r.id as string) ? { ...r, ...(req.postDataJSON() as Row) } : r));
         return json(route, []);
@@ -116,10 +129,12 @@ async function mockBackend(page: Page) {
       if (req.method() === "POST") { db.items.unshift({ id: `bbbbbbbb-0000-4000-8000-9${String(db.items.length).padStart(11, "0")}`, recording_id: null, due_at: null, said: null, quote: null, at_ms: null, needs_review: false, notified_at: null, apple_sent_at: null, created_at: new Date().toISOString(), ...(req.postDataJSON() as Row) }); return json(route, [], 201); }
       if (req.method() === "PATCH") {
         const ids = inList("id") ?? [eq("id")];
+        db.itemPatches.push({ ids, ...(req.postDataJSON() as Row) });
         db.items = db.items.map((i) => (ids.includes(i.id as string) ? { ...i, ...(req.postDataJSON() as Row) } : i));
         return json(route, []);
       }
       let rows = db.items.slice();
+      if (eq("id")) rows = rows.filter((i) => i.id === eq("id"));
       if (eq("recording_id")) rows = rows.filter((i) => i.recording_id === eq("recording_id"));
       if (inList("state")) rows = rows.filter((i) => inList("state")!.includes(i.state as string));
       if (q.get("state") === "neq.dismissed") rows = rows.filter((i) => i.state !== "dismissed");
@@ -572,4 +587,50 @@ test("the notices at the top never flash on or off by mistake", async ({ page })
   await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
   await page.waitForTimeout(1200);
   expect(await notices()).toEqual(["overdue-banner shown"]);
+});
+
+test("Zeus asks before removing an item or marking it done, and names the item from the database", async ({ page }) => {
+  const db = await mockBackend(page);
+  const SURVEY = "bbbbbbbb-0000-4000-8000-000000000002";
+  const COUNTY = "bbbbbbbb-0000-4000-8000-000000000003";
+  // What the server streams when Zeus calls remove_item and update_item(done): markers, not changes.
+  db.zeusReply = `I can do both.\n\u27E6confirm:remove:${SURVEY}\u27E7\n\u27E6confirm:complete:${COUNTY}\u27E7\nEach is waiting for your tap.\n`;
+  await page.goto("/zeus");
+  await page.getByLabel("Email").fill("daniel@example.com");
+  await page.getByLabel("Password").fill("pw");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.getByLabel("Ask Zeus").fill("Remove the survey to-do and mark the county call done");
+  await page.getByRole("button", { name: "Ask" }).click();
+
+  const cards = page.getByTestId("zeus-confirm");
+  await expect(cards).toHaveCount(2);
+  await expect(cards.nth(0)).toContainText("Remove: Email Sam the property survey?");
+  await expect(cards.nth(1)).toContainText("Mark done: Call the county about the permit?");
+  await expect(page.getByTestId("turn-assistant")).toContainText("Each is waiting for your tap.");
+  await expect(page.getByTestId("turn-assistant")).not.toContainText("confirm:");
+  // Nothing has changed yet.
+  expect(db.itemPatches).toEqual([]);
+  await shot(page, "10-zeus-confirm");
+
+  await cards.nth(0).getByRole("button", { name: "Remove" }).click();
+  await expect(page.getByTestId("turn-assistant")).toContainText("✓ Removed: Email Sam the property survey");
+  await expect.poll(() => db.items.find((i) => i.id === SURVEY)?.state).toBe("dismissed");
+  await expect(cards).toHaveCount(1);
+
+  await cards.nth(0).getByRole("button", { name: "Keep as is" }).click();
+  await expect(page.getByTestId("turn-assistant")).toContainText("Not changed: Call the county about the permit");
+  await expect(cards).toHaveCount(0);
+  expect(db.items.find((i) => i.id === COUNTY)?.state).toBe("active");
+  expect(db.itemPatches).toEqual([{ ids: [SURVEY], state: "dismissed" }]);
+
+  // The saved chat keeps the outcomes, so reopening it offers nothing to tap again.
+  const saved = await page.evaluate(() => localStorage.getItem("voice-notes-zeus-chats") ?? "");
+  expect(saved).toContain("✓ Removed: Email Sam the property survey");
+  expect(saved).toContain("Not changed: Call the county about the permit");
+  expect(saved).not.toContain("\u27E6");
+  await page.reload();
+  await page.getByRole("button", { name: "History" }).click();
+  await page.getByTestId("saved-chat").click();
+  await expect(page.getByTestId("turn-assistant")).toContainText("✓ Removed: Email Sam the property survey");
+  await expect(cards).toHaveCount(0);
 });

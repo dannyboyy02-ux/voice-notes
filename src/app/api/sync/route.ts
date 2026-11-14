@@ -10,6 +10,9 @@ export async function POST(req: Request) {
   if (owner instanceof Response) return owner;
   const db = adminDb();
   const set = await db.rpc("set_app_url", { p_url: appUrl(req) });
+  // The database rules admit only this account. Saving it here keeps them in step with OWNER_USER_ID.
+  // Before the newest supabase/setup.sql is run the function does not exist yet; that is reported, not fatal.
+  const savedOwner = await db.rpc("set_owner", { p_owner: owner.userId });
   const state = await db.rpc("scheduler_state");
   return Response.json({
     ok: true,
@@ -18,5 +21,6 @@ export async function POST(req: Request) {
     databaseReady: !set.error && !state.error,
     databaseError: set.error?.message ?? state.error?.message ?? null,
     scheduler: state.data ?? null,
+    ownerSaved: !savedOwner.error,
   });
 }

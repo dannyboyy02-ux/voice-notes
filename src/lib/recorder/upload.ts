@@ -49,7 +49,8 @@ export async function uploadSession(id: string, onProgress: (fraction: number) =
     const db = await getSupabase();
     const row = {
       id: s.id, user_id: s.userId, started_at: s.startedAt, time_zone: s.timeZone, duration_ms: s.durationMs,
-      storage_path: path, mime_type: s.mimeType, bytes: file.size, part: s.part, status: "uploaded",
+      // No status: a new row starts as "uploaded" by default, and only the server may change it.
+      storage_path: path, mime_type: s.mimeType, bytes: file.size, part: s.part,
       ...(s.folderId ? { folder_id: s.folderId } : {}),
     };
     // ignoreDuplicates: a repeat must not push a recording that is already being processed back to "uploaded".

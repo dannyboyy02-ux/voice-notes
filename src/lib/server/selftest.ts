@@ -12,17 +12,18 @@ const now = () => new Date().toISOString();
 const SAMPLE_WORDS =
   "Note to self. I need to email Sam the property survey. Also, remind me tomorrow at nine in the morning to call the county about the permit.";
 
-async function removeTestData(owner: string) {
+export async function removeTestData(owner: string) {
   const db = adminDb();
-  const { data: recs } = await db.from("recordings").select("id, storage_path, aai_transcript_id").eq("is_test", true);
-  const paths = (recs ?? []).map((r) => r.storage_path).filter(Boolean) as string[];
+  // Only the owner's own test rows, and only files inside the owner's folder.
+  const { data: recs } = await db.from("recordings").select("id, storage_path, aai_transcript_id").eq("is_test", true).eq("user_id", owner);
+  const paths = (recs ?? []).map((r) => r.storage_path).filter((p): p is string => typeof p === "string" && p.startsWith(`${owner}/`) && !p.includes(".."));
   if (paths.length) await db.storage.from(AUDIO_BUCKET).remove(paths);
   for (const r of recs ?? []) if (r.aai_transcript_id) await deleteTranscript(r.aai_transcript_id).catch(() => {});
-  await db.from("items").delete().eq("is_test", true);
-  await db.from("recordings").delete().eq("is_test", true);
+  await db.from("items").delete().eq("is_test", true).eq("user_id", owner);
+  await db.from("recordings").delete().eq("is_test", true).eq("user_id", owner);
   const [{ count: recordingsLeft }, { count: itemsLeft }, files] = await Promise.all([
-    db.from("recordings").select("id", { count: "exact", head: true }).eq("is_test", true),
-    db.from("items").select("id", { count: "exact", head: true }).eq("is_test", true),
+    db.from("recordings").select("id", { count: "exact", head: true }).eq("is_test", true).eq("user_id", owner),
+    db.from("items").select("id", { count: "exact", head: true }).eq("is_test", true).eq("user_id", owner),
     db.storage.from(AUDIO_BUCKET).list(owner, { search: "selftest-" }),
   ]);
   return { test_recordings_left: recordingsLeft ?? 0, test_items_left: itemsLeft ?? 0, test_audio_files_left: files.data?.length ?? 0 };

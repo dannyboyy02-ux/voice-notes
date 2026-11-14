@@ -10,6 +10,15 @@ const CORS = {
   "access-control-expose-headers": "Location, Upload-Offset, Upload-Length, Tus-Resumable, Content-Range",
 };
 
+// Every page must work under the app's Content-Security-Policy: any refusal the browser logs fails the test.
+let cspRefusals: string[] = [];
+test.beforeEach(({ page }) => {
+  cspRefusals = [];
+  page.on("console", (m) => { if (/Content Security Policy/i.test(m.text())) cspRefusals.push(m.text()); });
+});
+test.afterEach(() => { expect(cspRefusals).toEqual([]); });
+
+const UPLOAD_COLUMNS = ["id", "user_id", "started_at", "time_zone", "duration_ms", "storage_path", "mime_type", "bytes", "part", "folder_id"];
 type Mock = { kicks: number; uploadedBytes: number; uploadLength: number; pieces: number; objectName: string; rows: Record<string, unknown>[]; uploadAuth: string };
 
 /** Stands in for Supabase (login, resumable storage, database) and this app's own sync route. */
@@ -64,16 +73,24 @@ async function mockBackend(page: Page): Promise<Mock> {
     }
 
     if (url.pathname === "/rest/v1/recordings") {
+      // As in supabase/setup.sql, the phone may write only these columns; the database refuses any other.
+      const refused = (cols: string[], allowed: string[]) => cols.filter((c) => !allowed.includes(c));
+      const denied = (cols: string[]) => json(route, { code: "42501", message: `permission denied for table recordings (${cols.join(", ")})` }, 403);
       if (req.method() === "POST") {
         const body = req.postDataJSON();
-        for (const row of Array.isArray(body) ? body : [body]) {
-          if (!mock.rows.some((r) => r.id === row.id)) mock.rows.push({ title: null, deleted_at: null, ...row });
+        const rows = (Array.isArray(body) ? body : [body]) as Record<string, unknown>[];
+        const bad = refused(rows.flatMap(Object.keys), UPLOAD_COLUMNS);
+        if (bad.length) return denied(bad);
+        for (const row of rows) {
+          if (!mock.rows.some((r) => r.id === row.id)) mock.rows.push({ title: null, deleted_at: null, status: "uploaded", ...row });
         }
         return json(route, [], 201);
       }
       if (req.method() === "PATCH") {
         const target = url.searchParams.get("id")?.replace("eq.", "");
         const patch = req.postDataJSON() as Record<string, unknown>;
+        const bad = refused(Object.keys(patch), ["folder_id", "deleted_at"]);
+        if (bad.length) return denied(bad);
         mock.rows = mock.rows.map((r) => (r.id === target ? { ...r, ...patch } : r));
         return json(route, [], 200);
       }
