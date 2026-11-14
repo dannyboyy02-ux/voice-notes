@@ -61,12 +61,13 @@ A personal iPhone home-screen web app. Record a thought or a meeting; a minute o
 ```bash
 npm run lint
 npm run typecheck
-npm test        # 80 unit tests, then 12 Playwright tests (one walks every screen with realistic data)
+npm test        # 121 unit tests, then 31 Playwright tests: 15 in the browser (one walks every screen with realistic data), 16 straight to the server
 npm run build
 ```
 
 - `/api/selftest?action=start`, with the secret in an `x-selftest-secret` header (never in the address, which ends up in logs and history), uploads a spoken sample and lets the real scheduler drive it; call it again without `action` about once a minute until `done` is true. Add `&fast=1` to drive the run with the fast path the phone uses. For example: `curl -H "x-selftest-secret: $SELFTEST_SECRET" "https://voice-notes-beige.vercel.app/api/selftest?action=start"`. Without `SELFTEST_SECRET` set in Vercel the endpoint is switched off. It checks: uploaded to ready, a to-do, a dated reminder, a due reminder sent by the tick, a Zeus answer about the sample, and test rows removed.
 - If something is not set up, the same endpoint says what: missing variable names, or which Supabase project it is connected to and which tables, bucket or functions it cannot find.
+- `package.json` overrides `minimatch` for the TypeScript lint parser (`@typescript-eslint/typescript-estree`) to 11.x, which clears advisory GHSA-g3hv-75wg-m249 in the lint tooling. Remove the override once a `typescript-eslint` release depends on minimatch 11.0.1 or later. Nothing that ships uses it (`npm audit --omit=dev` was already clean).
 - `/phone-check` tests what the iPhone itself allows (formats, real bytes per second, joined-chunk playback, wake lock, interruption, the Shortcuts link).
 
 ## Status (13 November 2026)
