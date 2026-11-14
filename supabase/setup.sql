@@ -396,6 +396,10 @@ begin
      or exists (select 1 from public.recordings
                  where status = 'ready' and storage_path is not null and audio_deleted_at is null
                    and ready_at < now() - interval '30 days')
+     -- A transcript the speech service still holds although its text is saved here (deleted by the worker).
+     or exists (select 1 from public.recordings
+                 where aai_transcript_id is not null and status in ('transcribed', 'extracting', 'ready')
+                   and created_at > now() - interval '31 days')
   then
     perform net.http_post(
       url := cfg.app_url || '/api/tick',

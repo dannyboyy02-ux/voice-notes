@@ -24,6 +24,7 @@ const rec = (over: Record<string, unknown>) => ({
 
 beforeEach(() => {
   vi.stubEnv("OWNER_USER_ID", OWNER);
+  stt.deleteTranscript.mockReset().mockResolvedValue(undefined);
   stt.getTranscript.mockReset().mockResolvedValue({
     status: "done", durationMs: 1000, speakers: 1, utterances: [{ speaker: "A", start: 0, end: 900, text: "hello" }],
   });
@@ -116,5 +117,71 @@ describe("worker: reminder notifications", () => {
       ["Reminder from a recording", "Call the bank on 555-0100"],
       ["Reminder", "Renew registration"],
     ]);
+  });
+});
+
+describe("worker: the speech service's copy of a transcript is deleted once it is saved here", () => {
+  it("deletes it right after the transcript lines are saved, and forgets the id", async () => {
+    const mine = rec({ id: "mine", status: "transcribing", aai_transcript_id: "job-2", storage_path: `${OWNER}/a.m4a` });
+    db = fakeDb({ recordings: [mine], utterances: [] }, { claim_poll: () => [{ ...mine }] });
+    let savedFirst = false;
+    stt.deleteTranscript.mockImplementation(async () => { savedFirst = db.tables.utterances.length === 1 && db.tables.recordings[0].status === "transcribed"; });
+    const report = await runTick(5_000);
+    expect(stt.deleteTranscript).toHaveBeenCalledWith("job-2");
+    expect(savedFirst).toBe(true);
+    expect(db.tables.recordings[0]).toMatchObject({ status: "transcribed", aai_transcript_id: null });
+    expect(report.polled).toEqual([{ id: "mine", result: "transcribed" }]);
+  });
+
+  it("keeps the id for a later try when the delete fails, without failing the recording", async () => {
+    const mine = rec({ id: "mine", status: "transcribing", aai_transcript_id: "job-3", storage_path: `${OWNER}/a.m4a` });
+    db = fakeDb({ recordings: [mine], utterances: [] }, { claim_poll: () => [{ ...mine }] });
+    stt.deleteTranscript.mockRejectedValue(new Error("HTTP Error: 503 Service Unavailable"));
+    const report = await runTick(5_000);
+    // The same pass's sweep (step 7) tries once more and reports the failure.
+    expect(stt.deleteTranscript).toHaveBeenCalledTimes(2);
+    expect(db.tables.recordings[0]).toMatchObject({ status: "transcribed", aai_transcript_id: "job-3" });
+    expect(report.polled[0].result).toMatch(/^transcribed \(the speech service's copy is deleted later/);
+    expect(report.errors).toContain("transcript delete: HTTP Error: 503 Service Unavailable");
+  });
+
+  it("sweeps leftover copies only where the text is saved here, and only the owner's", async () => {
+    const recent = new Date().toISOString();
+    db = fakeDb({
+      recordings: [
+        rec({ id: "ready", status: "ready", aai_transcript_id: "job-ready", created_at: recent }),
+        rec({ id: "extracting", status: "extracting", aai_transcript_id: "job-extracting", created_at: recent }),
+        rec({ id: "still-transcribing", status: "transcribing", aai_transcript_id: "job-busy", created_at: recent }),
+        rec({ id: "failed-transcribing", status: "failed", aai_transcript_id: "job-failed", created_at: recent }),
+        rec({ id: "theirs", user_id: OTHER, status: "ready", aai_transcript_id: "job-theirs", created_at: recent }),
+      ],
+    });
+    const report = await runTick(5_000);
+    expect(stt.deleteTranscript.mock.calls.map((c) => c[0]).sort()).toEqual(["job-extracting", "job-ready"]);
+    expect(report.transcripts_deleted).toBe(2);
+    const ids = Object.fromEntries(db.tables.recordings.map((r) => [r.id, r.aai_transcript_id]));
+    expect(ids).toEqual({ ready: null, extracting: null, "still-transcribing": "job-busy", "failed-transcribing": "job-failed", theirs: "job-theirs" });
+  });
+
+  it("stops retrying a failing delete once the service's own 30-day retention has passed", async () => {
+    stt.deleteTranscript.mockRejectedValue(new Error("HTTP Error: 400 Bad Request"));
+    db = fakeDb({
+      recordings: [
+        rec({ id: "recent", aai_transcript_id: "job-recent", created_at: new Date().toISOString() }),
+        rec({ id: "old", aai_transcript_id: "job-old", created_at: OLD }),
+      ],
+    });
+    const report = await runTick(5_000);
+    const ids = Object.fromEntries(db.tables.recordings.map((r) => [r.id, r.aai_transcript_id]));
+    expect(ids).toEqual({ recent: "job-recent", old: null });
+    expect(report.transcripts_deleted).toBe(0);
+    expect(report.errors).toEqual(["transcript delete: HTTP Error: 400 Bad Request"]);
+  });
+
+  it("deletes any copy left behind when Trash is emptied", async () => {
+    db = fakeDb({ recordings: [rec({ id: "binned", status: "failed", deleted_at: OLD, aai_transcript_id: "job-binned" })] });
+    await runTick(5_000);
+    expect(stt.deleteTranscript).toHaveBeenCalledWith("job-binned");
+    expect(db.tables.recordings).toEqual([]);
   });
 });

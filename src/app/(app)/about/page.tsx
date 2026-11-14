@@ -82,7 +82,8 @@ export default function AboutPage() {
         <ul>
           <li>Audio is sent to AssemblyAI to be transcribed. The transcript is sent to the Claude API to write the summary, to-dos and reminders.</li>
           <li>When you ask Zeus a question, the relevant transcripts, summaries and items are sent to the Claude API too.</li>
-          <li>Audio is deleted from storage 30 days after processing. Transcripts and items stay until you delete the conversation.</li>
+          <li>AssemblyAI&apos;s copy of the transcript is deleted as soon as the transcript is saved in this app, usually within a minute of it being ready.</li>
+          <li>Audio is deleted from storage 30 days after processing. Transcripts and items stay in this app until you delete the conversation.</li>
           <li>Recording other people can require their consent where you are.</li>
         </ul>
       </section>

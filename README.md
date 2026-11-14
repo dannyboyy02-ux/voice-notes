@@ -21,7 +21,7 @@ A personal iPhone home-screen web app. Record a thought or a meeting; a minute o
 - **Fast start**: when an upload is confirmed the phone calls `/api/kick`, which runs the same worker passes every few seconds until the recording is ready. The once-a-minute scheduler stays as the safety net for retries, reminders and anything the fast path misses.
 - **Zeus**: an in-app chat (`/zeus`, Claude Sonnet 5.5) for reviewing recordings. From a note it reads that recording's full transcript; from the Zeus tab it reads the 40 most recent summaries and items plus transcript lines matching the question. It has three tools, all limited to the owner's to-dos and reminders: add, update (wording, due time, done or active) and remove. Adding, rewording, re-dating and reopening happen at once and are written into the reply as a `✓` line. Removing an item or marking it done only proposes it: the server writes a marker instead of changing anything, the chat shows the item (its wording read from the database) with a button, and the phone makes the change under the owner's login only when it is tapped. Removal is a soft delete (the row is kept as dismissed). Transcripts are treated as material, never instructions: angle brackets in recording text are replaced before it reaches the model, and the model's own words cannot produce a confirm button. The self-test runs Zeus with the tools switched off. Chats are saved in the phone's browser storage only, and their cost is not in the Settings estimate.
 - **Reminders** alert with the title "Reminder from a recording" when they were taken from a recording, and "Reminder" when added by hand or through Zeus.
-- **AssemblyAI** transcribes with speaker labels from a short-lived signed link. **Claude** returns a fixed structure (no tools): Haiku 5.5 for a short single-speaker memo, Opus 5.5 otherwise, with an Opus rerun when the cheap pass reports low confidence.
+- **AssemblyAI** transcribes with speaker labels from a short-lived signed link. As soon as the transcript is saved in Supabase the worker deletes AssemblyAI's copy (its delete keeps only billing details such as the id and duration). A delete that fails is retried each pass; a recording that failed while transcribing keeps its job so Retry can reuse it. **Claude** returns a fixed structure (no tools): Haiku 5.5 for a short single-speaker memo, Opus 5.5 otherwise, with an Opus rerun when the cheap pass reports low confidence.
 
 ## Where it runs
 
@@ -84,6 +84,7 @@ Not yet verified:
 - Pause and resume on an iPhone: Safari's recorder is asked to pause and resume, which is tested only in a desktop browser.
 - Recordings with several speakers or longer than 10 minutes: the Opus path, the low-confidence rerun, the Review list, the 50 MB part roll-over.
 - The 30-day audio deletion, Retry after three failures, and Redo end to end.
+- Deleting transcripts at AssemblyAI against the live service (tested with the service stubbed; the self-test's own clean-up has always used the same delete call).
 
 Database version: Trash, Folders and the "last tick" fix all need the current `supabase/setup.sql` to have been run. The app works without it, with Trash and Folders switched off.
 

@@ -5,7 +5,7 @@ import { onStepFailure, onStepSuccess, type WorkStep } from "../pipeline/steps";
 import { adminDb, AUDIO_BUCKET } from "./db";
 import { runExtraction, type ExtractOutput } from "./extract";
 import { sendPush } from "./push";
-import { getTranscript, submitTranscript } from "./stt";
+import { deleteTranscript, getTranscript, submitTranscript } from "./stt";
 import { hasTrash } from "./trash";
 
 type Rec = {
@@ -22,6 +22,8 @@ export type TickReport = {
   steps: { id: string; step: string; result: string }[];
   audio_deleted: number;
   trash_emptied: number;
+  /** Transcripts deleted at the speech service once their text was saved here. */
+  transcripts_deleted: number;
   /** True when a step failed in this pass; the retry belongs to the scheduler, a minute later. */
   step_failed: boolean;
   errors: string[];
@@ -29,6 +31,10 @@ export type TickReport = {
 
 const SIGNED_URL_SECONDS = 3 * 3600;
 const POLL_ERROR_LIMIT = 8;
+/** The speech service deletes transcripts after 30 days by default; past this, a failing delete stops being retried. */
+const SERVICE_KEEPS_MS = 31 * 24 * 3600 * 1000;
+/** Statuses whose transcript is saved in this database, so the speech service's copy is no longer needed. */
+const TRANSCRIPT_SAVED = ["transcribed", "extracting", "ready"];
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 /** True when a recording's audio path is inside its owner's own folder of the bucket. */
 export const inOwnFolder = (r: { user_id: string; storage_path: string | null }) =>
@@ -84,6 +90,15 @@ async function pollTranscription(rec: Rec): Promise<string> {
     stt_cost_usd: sttCostUsd(durationMs),
   }).eq("id", rec.id).eq("status", "transcribing");
   if (error) throw new Error(error.message);
+  // The transcript is saved here now, so the speech service's copy is deleted. If that fails, the id is
+  // kept and a later pass (step 7) tries again.
+  const jobId = rec.aai_transcript_id!;
+  try {
+    await deleteTranscript(jobId);
+  } catch (e) {
+    return `transcribed (the speech service's copy is deleted later: ${msg(e).slice(0, 120)})`;
+  }
+  await db.from("recordings").update({ aai_transcript_id: null }).eq("id", rec.id).eq("aai_transcript_id", jobId);
   return "transcribed";
 }
 
@@ -171,7 +186,7 @@ export async function runTick(budgetMs = 240_000): Promise<TickReport> {
   const db = adminDb();
   const started = Date.now();
   const owner = process.env.OWNER_USER_ID?.trim() || null;
-  const report: TickReport = { reminders_sent: [], swept: 0, polled: [], steps: [], audio_deleted: 0, trash_emptied: 0, step_failed: false, errors: [] };
+  const report: TickReport = { reminders_sent: [], swept: 0, polled: [], steps: [], audio_deleted: 0, trash_emptied: 0, transcripts_deleted: 0, step_failed: false, errors: [] };
 
   // 1. Due reminders first: they are time-sensitive and quick.
   try {
@@ -208,6 +223,7 @@ export async function runTick(budgetMs = 240_000): Promise<TickReport> {
     for (const rec of (polling ?? []) as Rec[]) {
       // As in step 4: a transcript is saved only for the owner's recordings, whatever is in the table.
       if (owner && rec.user_id !== owner) {
+        if (rec.aai_transcript_id) await deleteTranscript(rec.aai_transcript_id).catch(() => {});
         await db.from("recordings").update({ status: "failed", failed_step: "transcribing", aai_transcript_id: null, locked_until: null, last_error: "Not the owner's recording." }).eq("id", rec.id);
         report.polled.push({ id: rec.id, result: "skipped: not the owner's" });
         continue;
@@ -218,6 +234,8 @@ export async function runTick(budgetMs = 240_000): Promise<TickReport> {
         // after several, stop as failed so the note shows Retry. Retry submits a fresh job.
         const tries = rec.attempts + 1;
         if (tries >= POLL_ERROR_LIMIT) {
+          // The id is about to be forgotten, so try once to delete the job at the speech service.
+          if (rec.aai_transcript_id) await deleteTranscript(rec.aai_transcript_id).catch(() => {});
           await db.from("recordings").update({ status: "failed", failed_step: "transcribing", aai_transcript_id: null, locked_until: null, last_error: `Could not read the transcript: ${msg(e)}`.slice(0, 500) }).eq("id", rec.id).eq("status", "transcribing");
         } else {
           await db.from("recordings").update({ attempts: tries, locked_until: null, last_error: msg(e).slice(0, 500) }).eq("id", rec.id).eq("status", "transcribing");
@@ -278,7 +296,7 @@ export async function runTick(budgetMs = 240_000): Promise<TickReport> {
   try {
     if (await hasTrash()) {
       const cutoff = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
-      let q = db.from("recordings").select("id, user_id, storage_path").lt("deleted_at", cutoff);
+      let q = db.from("recordings").select("id, user_id, storage_path, aai_transcript_id").lt("deleted_at", cutoff);
       if (owner) q = q.eq("user_id", owner);
       const { data: gone } = await q.limit(20);
       for (const r of gone ?? []) {
@@ -289,11 +307,32 @@ export async function runTick(budgetMs = 240_000): Promise<TickReport> {
           const gone = await db.storage.from(AUDIO_BUCKET).remove([r.storage_path]);
           if (gone.error) { report.errors.push(`trash audio: ${gone.error.message}`); continue; }
         }
+        // Usually gone already (deleted when the transcript was saved); this catches any copy left behind.
+        if (r.aai_transcript_id) await deleteTranscript(r.aai_transcript_id).catch(() => {});
         const { error } = await db.from("recordings").delete().eq("id", r.id);
         if (error) report.errors.push(`trash: ${error.message}`); else report.trash_emptied++;
       }
     }
   } catch (e) { report.errors.push(`trash: ${msg(e)}`); }
+
+  // 7. Transcripts the speech service still holds although their text is saved here: recordings made before
+  //    deletion on save existed, and any delete that failed. A recording that failed while transcribing keeps
+  //    its job, because Retry reuses it and it may be the only copy.
+  try {
+    let q = db.from("recordings").select("id, aai_transcript_id, created_at").not("aai_transcript_id", "is", null).in("status", TRANSCRIPT_SAVED);
+    if (owner) q = q.eq("user_id", owner);
+    const { data: held } = await q.limit(20);
+    for (const r of held ?? []) {
+      try {
+        await deleteTranscript(r.aai_transcript_id);
+        report.transcripts_deleted++;
+      } catch (e) {
+        // Past the service's own retention the copy is gone anyway, so stop retrying; otherwise try next pass.
+        if (!(Date.now() - Date.parse(r.created_at) >= SERVICE_KEEPS_MS)) { report.errors.push(`transcript delete: ${msg(e).slice(0, 200)}`); continue; }
+      }
+      await db.from("recordings").update({ aai_transcript_id: null }).eq("id", r.id).eq("aai_transcript_id", r.aai_transcript_id);
+    }
+  } catch (e) { report.errors.push(`transcript cleanup: ${msg(e)}`); }
 
   return report;
 }
