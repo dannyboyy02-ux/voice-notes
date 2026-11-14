@@ -96,6 +96,7 @@ Behaviours worth knowing:
 - After an upload the fast path stops at the first failed step; the scheduler retries a minute later, up to three attempts.
 - A transcription that cannot be read back eight times in a row stops as failed with Retry. A job the speech service leaves queued indefinitely is not detected.
 - A reminder is marked as sent before the push goes out, so it is sent at most once; if the push fails it shows only as overdue in the app.
+- `/api/tick` refuses a request without a secret shaped like the scheduler's, and the owner-only routes refuse one without a token shaped like a Supabase sign-in, before any database or Supabase call and before saying anything about the server's set-up. There is no per-address rate limit in the app; a Vercel Firewall rule can add one.
 - The worker only processes, polls, cleans up and empties Trash for recordings belonging to `OWNER_USER_ID`, and only signs or deletes audio files inside that user's folder.
 
 Known issue: databases set up before pull request 3 do not record the "last tick" stamp, because Supabase rejects an `UPDATE` without `WHERE` from API roles. Nothing depends on it; re-running `supabase/setup.sql` fixes it.

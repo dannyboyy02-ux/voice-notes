@@ -54,3 +54,29 @@ test.describe("security headers", () => {
     expect(await page.frames()[1].evaluate(() => document.querySelector("[data-testid]") === null)).toBe(true);
   });
 });
+
+test.describe("requests without a well-formed credential are refused first", () => {
+  test("the scheduler's endpoint refuses a missing or malformed secret without saying how the server is set up", async ({ request }) => {
+    for (const headers of [{}, { "x-tick-secret": "guess" }, { "x-tick-secret": "z".repeat(64) }] as Record<string, string>[]) {
+      const res = await request.post("/api/tick", { headers });
+      expect(res.status()).toBe(403);
+      expect(await res.json()).toEqual({ error: "forbidden" });
+    }
+  });
+
+  test("a secret shaped like the scheduler's goes on to the next check", async ({ request }) => {
+    // The test server has no database settings, so the next check is where it stops.
+    const res = await request.post("/api/tick", { headers: { "x-tick-secret": "0f".repeat(32) } });
+    expect(res.status()).toBe(503);
+  });
+
+  for (const path of ["/api/zeus", "/api/kick", "/api/sync", "/api/push/test", "/api/recordings/aaaaaaaa-0000-4000-8000-000000000001/action"]) {
+    test(`${path} refuses a missing or malformed sign-in before asking Supabase`, async ({ request }) => {
+      for (const headers of [{}, { authorization: "Bearer garbage" }, { authorization: "Bearer a.b" }] as Record<string, string>[]) {
+        const res = await request.post(path, { headers, data: {} });
+        expect(res.status()).toBe(401);
+        expect(await res.json()).toEqual({ error: "not_signed_in" });
+      }
+    });
+  }
+});
