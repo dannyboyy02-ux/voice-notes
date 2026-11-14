@@ -10,6 +10,14 @@ const USER_ID = "11111111-2222-4333-8444-555555555555";
 const CORS = { "access-control-allow-origin": "*", "access-control-allow-methods": "*", "access-control-allow-headers": "*", "access-control-expose-headers": "Content-Range" };
 const hours = (n: number) => new Date(Date.now() + n * 3600_000).toISOString();
 
+// Every page must work under the app's Content-Security-Policy: any refusal the browser logs fails the test.
+let cspRefusals: string[] = [];
+test.beforeEach(({ page }) => {
+  cspRefusals = [];
+  page.on("console", (m) => { if (/Content Security Policy/i.test(m.text())) cspRefusals.push(m.text()); });
+});
+test.afterEach(() => { expect(cspRefusals).toEqual([]); });
+
 type Row = Record<string, unknown>;
 const REC = { budget: "aaaaaaaa-0000-4000-8000-000000000001", dock: "aaaaaaaa-0000-4000-8000-000000000002", failed: "aaaaaaaa-0000-4000-8000-000000000003", busy: "aaaaaaaa-0000-4000-8000-000000000004" };
 

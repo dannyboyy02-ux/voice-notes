@@ -10,6 +10,14 @@ const CORS = {
   "access-control-expose-headers": "Location, Upload-Offset, Upload-Length, Tus-Resumable, Content-Range",
 };
 
+// Every page must work under the app's Content-Security-Policy: any refusal the browser logs fails the test.
+let cspRefusals: string[] = [];
+test.beforeEach(({ page }) => {
+  cspRefusals = [];
+  page.on("console", (m) => { if (/Content Security Policy/i.test(m.text())) cspRefusals.push(m.text()); });
+});
+test.afterEach(() => { expect(cspRefusals).toEqual([]); });
+
 const UPLOAD_COLUMNS = ["id", "user_id", "started_at", "time_zone", "duration_ms", "storage_path", "mime_type", "bytes", "part", "folder_id"];
 type Mock = { kicks: number; uploadedBytes: number; uploadLength: number; pieces: number; objectName: string; rows: Record<string, unknown>[]; uploadAuth: string };
 
