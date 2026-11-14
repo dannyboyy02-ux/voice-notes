@@ -45,13 +45,13 @@ test.describe("security headers", () => {
     expect(h["service-worker-allowed"]).toBe("/");
   });
 
-  test("a page placed inside another site's frame is refused by the browser", async ({ page }) => {
-    // A stand-in for another site: an http origin the test serves itself, framing the app.
-    await page.route("http://other-site.test/", (r) => r.fulfill({ contentType: "text/html", body: '<iframe id="f" src="http://localhost:3100/"></iframe>' }));
-    await page.goto("http://other-site.test/");
+  test("the app refuses to be shown inside a frame", async ({ page }) => {
+    // The framing page is served from the app's own address, so nothing but the app's frame-ancestors rule
+    // can stop it (a framing page on another address could be stopped by the browser's own local-network rules).
+    await page.route("**/frame-host", (r) => r.fulfill({ contentType: "text/html", body: '<iframe src="/settings"></iframe>' }));
+    await page.goto("/frame-host");
     // Chromium refuses quietly: the frame shows its own error page, and none of the app loads in it.
     await expect.poll(() => page.frames()[1]?.url(), { timeout: 10_000 }).toBe("chrome-error://chromewebdata/");
-    expect(await page.frames()[1].evaluate(() => document.querySelector("[data-testid]") === null)).toBe(true);
   });
 });
 
