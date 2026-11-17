@@ -44,12 +44,19 @@ export function useRecordedMs(): number {
 export default function TabBar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { recording, paused, engaged, start, pause, resume, stop } = useRecorder();
+  const { view, recording, paused, engaged, start, pause, keepGoing, resume, stop } = useRecorder();
   const recorded = useRecordedMs();
 
   if (recording) {
     return (
       <nav className="tabs recording" aria-label="Recording controls">
+        {view?.quietStopIn != null && !paused && (
+          // Shown wherever you are in the app, so a long pause in a meeting does not end the recording unnoticed.
+          <div className="quiet-warn" role="alert" data-testid="quiet-warning">
+            <span>No talking heard. Stopping in {Math.floor(view.quietStopIn / 60)}:{String(view.quietStopIn % 60).padStart(2, "0")}</span>
+            <button className="btn small" onClick={keepGoing} data-testid="keep-recording">Keep recording</button>
+          </div>
+        )}
         <div className="rec-clock" data-testid="bar-timer">
           <span className="rec-dots" aria-hidden="true" />
           <span>{paused ? "Paused" : "Recording"} · {clock(recorded)}</span>

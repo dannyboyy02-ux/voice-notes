@@ -1,7 +1,8 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { Recorder, type RecorderView } from "@/lib/recorder/recorder";
+import { readQuietMinutes } from "@/lib/recorder/quiet";
+import { Recorder, minutesLabel, type RecorderView } from "@/lib/recorder/recorder";
 import { audioKind, importProblem, importStartedAt } from "@/lib/import";
 import { deleteSession, getSession, listSessions, putChunk, putSession, type LocalSession } from "@/lib/recorder/store";
 import { uploadSession } from "@/lib/recorder/upload";
@@ -17,6 +18,8 @@ type RecorderApi = {
   notice: string;
   start: () => Promise<void>;
   pause: () => void;
+  /** Answers the quiet warning: the recording carries on and the quiet count starts again. */
+  keepGoing: () => void;
   resume: () => void;
   stop: () => Promise<void>;
   /** Recordings still on this phone, and how far each upload has got. */
@@ -129,11 +132,14 @@ export default function RecorderProvider({ userId, children }: { userId: string;
     setEngaged(true);
     // Updates are accepted only from the recorder that is current, so a late message from a
     // recording that has just ended can never disturb the next one.
+    // Read at the start of each recording, so a change in Settings applies to the next one.
+    const quietMs = readQuietMinutes() * 60_000;
     const r: Recorder = new Recorder(
       userId,
       (v) => { if (recorder.current === r) setView(v); },
-      (ids) => {
+      (ids, reason) => {
         const ended = !r.active && recorder.current === r;
+        if (ended && reason === "quiet") setNotice(`Recording stopped by itself after ${minutesLabel(quietMs)} with no talking. Everything was saved.`);
         if (ended) {
           recorder.current = null;
           setEngaged(false);
@@ -154,6 +160,8 @@ export default function RecorderProvider({ userId, children }: { userId: string;
           for (const id of keep) void upload(id);
         })();
       },
+      undefined,
+      quietMs,
     );
     recorder.current = r;
     try {
@@ -170,10 +178,11 @@ export default function RecorderProvider({ userId, children }: { userId: string;
   const stop = useCallback(async () => { await recorder.current?.stop(); }, []);
   const pause = useCallback(() => recorder.current?.pause(), []);
   const resume = useCallback(() => recorder.current?.resume(), []);
+  const keepGoing = useCallback(() => recorder.current?.keepGoing(), []);
   const active = view?.recording ?? false;
 
   return (
-    <Ctx.Provider value={{ view, recording: active, paused: view?.paused ?? false, engaged, error, notice, start, pause, resume, stop, local, progress, upload, refreshLocal, importFile, changed }}>
+    <Ctx.Provider value={{ view, recording: active, paused: view?.paused ?? false, engaged, error, notice, start, pause, keepGoing, resume, stop, local, progress, upload, refreshLocal, importFile, changed }}>
       {children}
     </Ctx.Provider>
   );

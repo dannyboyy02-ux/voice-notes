@@ -1,5 +1,6 @@
 "use client";
 import { CHUNK_MS, PART_BYTE_CAP, TARGET_BITS_PER_SECOND, pickMimeType, secondsLeft } from "./mime";
+import { QuietDetector, levelDb, warnWindowMs } from "./quiet";
 import { patchSession, putChunk, putSession, type LocalSession } from "./store";
 
 export type RecorderView = {
@@ -16,7 +17,13 @@ export type RecorderView = {
   secondsLeft: number | null;
   wakeLock: "on" | "off" | "unsupported";
   notice: string | null;
+  /** Seconds until the recording stops itself for lack of talking, shown only in the last stretch. Null otherwise. */
+  quietStopIn: number | null;
+  /** Whether the stop-when-quiet setting is on and the phone can hear well enough to use it. */
+  quietWatch: "on" | "off" | "unavailable";
 };
+
+export type EndReason = "stopped" | "interrupted" | "quiet";
 
 type Part = { session: LocalSession; recorder: MediaRecorder; startedAt: number; seq: number; bytes: number; writes: Promise<void>; activeBefore: number; runStart: number | null };
 
@@ -37,6 +44,12 @@ export class Recorder {
   private paused = false;
   /** Recorded time in parts that are already finished. */
   private earlierMs = 0;
+  private audio: AudioContext | null = null;
+  private analyser: AnalyserNode | null = null;
+  private quiet: QuietDetector | null = null;
+  private quietTimer: ReturnType<typeof setInterval> | null = null;
+  private lastHeard = 0;
+  private quietStopIn: number | null = null;
 
   private partMs(p: Part): number {
     return p.activeBefore + (p.runStart === null ? 0 : Date.now() - p.runStart);
@@ -45,8 +58,10 @@ export class Recorder {
   constructor(
     private userId: string,
     private onView: (v: RecorderView) => void,
-    private onEnded: (sessionIds: string[], reason: "stopped" | "interrupted") => void,
+    private onEnded: (sessionIds: string[], reason: EndReason) => void,
     private cap = PART_BYTE_CAP,
+    /** Stop by itself after this long with nobody talking. 0 switches it off. */
+    private quietStopMs = 0,
   ) {}
 
   private emit() {
@@ -63,6 +78,8 @@ export class Recorder {
       secondsLeft: p ? secondsLeft(p.bytes, this.partMs(p), this.cap) : null,
       wakeLock: !("wakeLock" in navigator) ? "unsupported" : this.wake && !this.wake.released ? "on" : "off",
       notice: this.notice,
+      quietStopIn: this.quietStopIn,
+      quietWatch: !this.quietStopMs ? "off" : this.analyser && this.audio?.state === "running" ? "on" : "unavailable",
     });
   }
 
@@ -77,6 +94,7 @@ export class Recorder {
     } catch (err) {
       // A start that fails part-way must not leave the microphone open or listeners behind.
       document.removeEventListener("visibilitychange", this.onVisibility);
+      this.stopListening();
       this.stream?.getTracks().forEach((t) => t.stop());
       this.stream = null;
       await this.wake?.release().catch(() => {});
@@ -86,6 +104,16 @@ export class Recorder {
   }
 
   private async begin(): Promise<void> {
+    // The sound meter's audio engine is made here, still inside the tap that started the recording:
+    // iPhone only lets it run when it is created in response to a tap.
+    if (this.quietStopMs > 0) {
+      try {
+        const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        this.audio = Ctx ? new Ctx() : null;
+      } catch {
+        this.audio = null;
+      }
+    }
     // Low-bitrate mono keeps an hour near 22 MB. The real rate is measured, not assumed.
     this.stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
     const track = this.stream.getAudioTracks()[0];
@@ -105,6 +133,56 @@ export class Recorder {
     this.firstStartedAt = Date.now();
     await this.startPart(1);
     await this.acquireWakeLock();
+    this.listen();
+    this.emit();
+  }
+
+  /** Measures the sound level ten times a second (short words fall between slower checks), to stop the recording once the room has stayed quiet long enough. */
+  private listen() {
+    if (!this.audio || !this.stream) return;
+    try {
+      const source = this.audio.createMediaStreamSource(this.stream);
+      this.analyser = this.audio.createAnalyser();
+      this.analyser.fftSize = 2048;
+      source.connect(this.analyser);
+    } catch {
+      this.analyser = null;
+      return;
+    }
+    if (this.audio.state !== "running") void this.audio.resume().catch(() => {}).then(() => this.emit());
+    const samples = new Float32Array(this.analyser.fftSize);
+    this.quiet = new QuietDetector(Date.now());
+    this.lastHeard = Date.now();
+    this.quietTimer = setInterval(() => {
+      const now = Date.now();
+      const since = now - this.lastHeard;
+      this.lastHeard = now;
+      if (!this.analyser || !this.quiet || this.paused || this.stopping || !this.part) return;
+      // A sleeping audio engine gives no real measurement, which never counts as quiet.
+      const running = this.audio?.state === "running";
+      if (running) this.analyser.getFloatTimeDomainData(samples);
+      this.quiet.hear(running ? levelDb(samples) : null, now, since);
+      const left = this.quietStopMs - this.quiet.quietMs(now);
+      const warn = left <= warnWindowMs(this.quietStopMs) ? Math.max(0, Math.ceil(left / 1000)) : null;
+      if (warn !== this.quietStopIn) { this.quietStopIn = warn; this.emit(); }
+      if (left <= 0) void this.stop("quiet");
+    }, 100);
+  }
+
+  private stopListening() {
+    if (this.quietTimer) clearInterval(this.quietTimer);
+    this.quietTimer = null;
+    this.analyser = null;
+    this.quiet = null;
+    this.quietStopIn = null;
+    void this.audio?.close().catch(() => {});
+    this.audio = null;
+  }
+
+  /** The owner is still there: start the quiet count again. */
+  keepGoing(): void {
+    this.quiet?.reset(Date.now());
+    this.quietStopIn = null;
     this.emit();
   }
 
@@ -190,6 +268,7 @@ export class Recorder {
   pause(): void {
     const p = this.part;
     if (!p || this.paused || this.stopping || p.recorder.state !== "recording") return;
+    this.quietStopIn = null;
     try { p.recorder.requestData(); } catch { /* the next chunk will carry it */ }
     p.recorder.pause();
     p.activeBefore = this.partMs(p);
@@ -204,17 +283,22 @@ export class Recorder {
     if (p.recorder.state === "paused") p.recorder.resume();
     p.runStart = Date.now();
     this.paused = false;
+    // Time spent paused is not quiet time: the count starts again.
+    this.quiet?.reset(Date.now());
+    this.quietStopIn = null;
     void this.acquireWakeLock().then(() => this.emit());
     this.emit();
   }
 
-  async stop(reason: "stopped" | "interrupted" = "stopped"): Promise<void> {
+  async stop(reason: EndReason = "stopped"): Promise<void> {
     if (this.stopping || !this.part) return;
     this.stopping = true;
     this.emit();
     const part = this.part;
     await this.finishPart(part);
     if (reason === "interrupted") await patchSession(part.session.id, { note: "Stopped by an interruption. Everything up to that moment was saved." });
+    if (reason === "quiet") await patchSession(part.session.id, { note: `Stopped by itself after ${minutesLabel(this.quietStopMs)} with no talking.` });
+    this.stopListening();
     this.part = null;
     this.paused = false;
     if (this.muteTimer) clearTimeout(this.muteTimer);
@@ -226,4 +310,11 @@ export class Recorder {
     this.emit();
     this.onEnded(this.finished.splice(0), reason);
   }
+}
+
+export function minutesLabel(ms: number): string {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s} second${s === 1 ? "" : "s"}`;
+  const m = Math.round(s / 60);
+  return `${m} minute${m === 1 ? "" : "s"}`;
 }
