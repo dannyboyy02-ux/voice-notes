@@ -67,6 +67,12 @@ export default function RecordPage() {
               {paused ? "Paused. " : ""}Saved on phone: {megabytes(view.totalBytes)}{view.part > 1 ? ` · part ${view.part}` : ""}
               <br />
               {view.secondsLeft === null ? "Measuring size…" : `About ${duration(view.secondsLeft)} left in this file`}
+              <br />
+              <span data-testid="quiet-watch">
+                {view.quietWatch === "on" ? "Stops by itself if nobody talks for a while (Settings)"
+                  : view.quietWatch === "unavailable" ? "Cannot hear the sound level here, so it will not stop by itself"
+                    : "Stop when quiet is off (Settings)"}
+              </span>
             </p>
             <div className="banner">
               {paused

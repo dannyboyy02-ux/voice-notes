@@ -7,6 +7,7 @@ import { APPLE_SHORTCUT_NAME } from "@/lib/apple";
 import { enablePush } from "@/lib/client/push";
 import { api } from "@/lib/client/supabase";
 import { applyTheme, readTheme, type Theme } from "@/lib/client/theme";
+import { QUIET_CHOICES, readQuietMinutes, saveQuietMinutes } from "@/lib/recorder/quiet";
 import { ago, duration } from "@/lib/format";
 import type { ModelMode } from "@/lib/models";
 
@@ -28,6 +29,8 @@ const noSubscribe = () => () => {};
 export default function SettingsPage() {
   const { db, userId, email, trash, push, setPush } = useApp();
   const savedTheme = useSyncExternalStore(noSubscribe, readTheme, () => "dark" as Theme);
+  const savedQuiet = useSyncExternalStore(noSubscribe, readQuietMinutes, () => 10);
+  const [quiet, setQuiet] = useState<number | null>(null);
   const [theme, setTheme] = useState<Theme | null>(null);
   const [mode, setMode] = useState<ModelMode>("auto");
   const [apple, setApple] = useState(false);
@@ -119,6 +122,20 @@ export default function SettingsPage() {
             <span className={`pill ${push === "on" ? "ok" : "warn"}`} data-testid="push-state">{PUSH_LABEL[push]}</span>
           </span>
         </div>
+        <label className="line">
+          <span>Stop recording after quiet</span>
+          <select
+            className="select"
+            value={String(quiet ?? savedQuiet)}
+            onChange={(e) => { const m = Number(e.target.value); saveQuietMinutes(m); setQuiet(m); }}
+            data-testid="quiet-stop"
+          >
+            {/* A value set some other way (the browser tests use seconds) still shows. */}
+            {[...new Set([...QUIET_CHOICES, quiet ?? savedQuiet])].sort((a, b) => a - b).map((m) => (
+              <option key={m} value={String(m)}>{m === 0 ? "Never" : `${m < 1 ? `${Math.round(m * 60)} sec` : `${m} min`}`}</option>
+            ))}
+          </select>
+        </label>
         <label className="line">
           <span>Also send to Apple Reminders</span>
           <input type="checkbox" checked={apple} onChange={(e) => save({ apple_reminders: e.target.checked })} style={{ width: 24, height: 24 }} data-testid="apple-toggle" />

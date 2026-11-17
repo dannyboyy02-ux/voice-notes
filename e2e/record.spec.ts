@@ -489,3 +489,97 @@ test("an audio file imported from inside a folder is filed in that folder", asyn
   expect(mock.rows[0]).toMatchObject({ folder_id: FOLDER_ID, mime_type: "audio/mpeg", status: "uploaded" });
   await expect(page.getByTestId("note")).toHaveCount(1);
 });
+
+/** Swaps the microphone for a near-silent one: a faint, steady hiss well below speech, like an empty room. */
+async function quietMicrophone(page: Page) {
+  await page.addInitScript(() => {
+    navigator.mediaDevices.getUserMedia = async () => {
+      const ctx = new AudioContext();
+      const hiss = ctx.createConstantSource();
+      hiss.offset.value = 0.0003; // about -70 dB: not digital silence, nowhere near talking
+      const out = ctx.createMediaStreamDestination();
+      hiss.connect(out);
+      hiss.start();
+      return out.stream;
+    };
+  });
+}
+async function signIn(page: Page) {
+  await page.goto("/");
+  await page.getByLabel("Email").fill("me@example.com");
+  await page.getByLabel("Password").fill("pw");
+  await page.getByRole("button", { name: "Sign in" }).click();
+}
+
+test("a recording nobody is talking in warns, can be kept going, then stops by itself and is saved", async ({ page }) => {
+  const mock = await mockBackend(page);
+  await quietMicrophone(page);
+  // Six seconds of quiet, so the warning shows for the last two.
+  await page.addInitScript(() => localStorage.setItem("voice-notes-quiet-stop", "0.1"));
+  await signIn(page);
+
+  await page.getByTestId("record-button").click();
+  await expect(page.getByTestId("quiet-watch")).toHaveText("Stops by itself if nobody talks for a while (Settings)");
+  await expect(page.getByTestId("quiet-warning")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByTestId("quiet-warning")).toContainText(/Stopping in 0:0[12]/);
+  if (process.env.SHOT) await page.screenshot({ path: `${process.env.SHOT}/quiet-warning.png` });
+
+  // Keep recording: the warning goes and the quiet count starts again.
+  await page.getByTestId("keep-recording").click();
+  await expect(page.getByTestId("quiet-warning")).toHaveCount(0);
+  await expect(page.getByTestId("stop-button")).toBeVisible();
+  await page.waitForTimeout(2500);
+  await expect(page.getByTestId("stop-button")).toBeVisible();
+
+  // Left alone, it stops itself, says so, and the recording uploads like any other.
+  await expect(page.getByTestId("rec-notice")).toContainText("stopped by itself after 6 seconds with no talking", { timeout: 15_000 });
+  await expect(page.getByTestId("stop-button")).toHaveCount(0);
+  await expect(page.getByTestId("upload-status").first()).toHaveText("Uploaded, waiting", { timeout: 20_000 });
+  expect(mock.rows).toHaveLength(1);
+  expect(mock.rows[0].duration_ms as number).toBeGreaterThan(9000);
+});
+
+test("pausing stops the quiet count", async ({ page }) => {
+  await mockBackend(page);
+  await quietMicrophone(page);
+  await page.addInitScript(() => localStorage.setItem("voice-notes-quiet-stop", "0.1"));
+  await signIn(page);
+  await page.getByTestId("record-button").click();
+  await page.waitForTimeout(3000);
+  await page.getByTestId("record-button").click(); // pause
+  await page.waitForTimeout(6000);
+  // Paused longer than the limit, and still recording.
+  await expect(page.getByTestId("stop-button")).toBeVisible();
+  await expect(page.getByTestId("quiet-warning")).toHaveCount(0);
+  await page.getByTestId("record-button").click(); // resume: the count starts from zero
+  await page.waitForTimeout(3000);
+  await expect(page.getByTestId("stop-button")).toBeVisible();
+  await page.getByTestId("stop-button").click();
+});
+
+test("a recording with sound in it never stops by itself, and the setting can be switched off", async ({ page }) => {
+  await mockBackend(page);
+  await page.addInitScript(() => { if (!localStorage.getItem("voice-notes-quiet-stop")) localStorage.setItem("voice-notes-quiet-stop", "0.05"); });
+  await signIn(page);
+
+  // The test browser's stand-in microphone beeps steadily, which counts as sound.
+  await page.getByTestId("record-button").click();
+  await page.waitForTimeout(7000);
+  await expect(page.getByTestId("stop-button")).toBeVisible();
+  await expect(page.getByTestId("quiet-warning")).toHaveCount(0);
+  await page.getByTestId("stop-button").click();
+  await expect(page.getByTestId("stop-button")).toHaveCount(0);
+
+  // Settings offers Never and 5 to 30 minutes, kept on this phone.
+  await page.getByRole("link", { name: "Settings" }).click();
+  const choice = page.getByTestId("quiet-stop");
+  await expect(choice.locator("option")).toHaveText(["Never", "3 sec", "5 min", "10 min", "15 min", "30 min"]);
+  if (process.env.SHOT) await page.screenshot({ path: `${process.env.SHOT}/quiet-setting.png` });
+  await choice.selectOption("0");
+  expect(await page.evaluate(() => localStorage.getItem("voice-notes-quiet-stop"))).toBe("0");
+  await page.getByRole("link", { name: "Home" }).click();
+  await page.goto("/");
+  await page.getByTestId("record-button").click();
+  await expect(page.getByTestId("quiet-watch")).toHaveText("Stop when quiet is off (Settings)");
+  await page.getByTestId("stop-button").click();
+});
