@@ -107,8 +107,12 @@ async function runTool(userId: string, timeZone: string, recordingId: string | n
   }
 
   const itemId = (parsed.data as { id: string }).id;
-  const { data: item } = await db.from("items").select("id, text, state, due_at, apple_sent_at").eq("id", itemId).eq("user_id", userId).maybeSingle();
+  const { data: item } = await db.from("items").select("id, recording_id, text, state, due_at, apple_sent_at").eq("id", itemId).eq("user_id", userId).maybeSingle();
   if (!item) return { content: "No item with that id belongs to the owner.", isError: true, note: null };
+  // Asked from inside one conversation, Zeus may change only that conversation's own items, whatever id it is given.
+  if (recordingId && item.recording_id !== recordingId) {
+    return { content: "That item is not part of this conversation. From here you can change only this conversation's items; the owner can ask on the Zeus tab to change others.", isError: true, note: null };
+  }
 
   // Removing an item or marking it done makes it drop out of sight, so a line spoken in a recording must
   // never be able to do it unseen. Zeus only proposes these; the chat asks the owner, and the phone makes

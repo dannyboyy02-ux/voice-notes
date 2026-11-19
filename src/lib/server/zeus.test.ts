@@ -35,7 +35,7 @@ vi.mock("@anthropic-ai/sdk", () => {
 let db: FakeDb;
 vi.mock("./db", () => ({ adminDb: () => db.client }));
 
-const { streamAnswer } = await import("./zeus");
+const { buildContext, streamAnswer } = await import("./zeus");
 
 const OWNER = "11111111-1111-4111-8111-111111111111";
 const SURVEY = "bbbbbbbb-0000-4000-8000-000000000002";
@@ -95,5 +95,56 @@ describe("Zeus: removing or completing an item waits for the owner's tap", () =>
     const answer = await ask("What did they say?");
     expect(answer).not.toMatch(/[⟦⟧]/);
     expect(answer).toContain(`confirm:remove:${SURVEY}`);
+  });
+});
+
+describe("Zeus inside one conversation", () => {
+  const REC = "aaaaaaaa-0000-4000-8000-000000000002";
+  const askHere = (question: string) =>
+    new Response(streamAnswer("(this conversation)", [{ role: "user", content: question }], { userId: OWNER, timeZone: "America/New_York", recordingId: REC, allowChanges: true })).text();
+
+  it("changes that conversation's own items", async () => {
+    db.tables.items[1].recording_id = REC;
+    api.rounds = [{ calls: [{ name: "update_item", input: { id: COUNTY, text: "Call the county planning office" } }] }, { text: "Done." }];
+    await askHere("Reword the county call");
+    expect(db.tables.items.find((i) => i.id === COUNTY)?.text).toBe("Call the county planning office");
+  });
+
+  it("refuses to change or remove an item from another conversation, or one added by hand", async () => {
+    db.tables.items[0].recording_id = "aaaaaaaa-0000-4000-8000-000000000009";
+    db.tables.items[1].recording_id = null;
+    api.rounds = [
+      { calls: [{ name: "update_item", input: { id: SURVEY, text: "Changed" } }, { name: "remove_item", input: { id: COUNTY } }] },
+      { text: "I can only change this conversation's items from here." },
+    ];
+    const answer = await askHere("Reword the survey item and remove the county call");
+    expect(db.tables.items.find((i) => i.id === SURVEY)?.text).toBe("Email Sam the property survey");
+    expect(answer).not.toContain("⟦");
+    expect(db.calls.filter((c) => c.startsWith("update"))).toEqual([]);
+    expect(JSON.stringify(api.toolResults)).toContain("not part of this conversation");
+  });
+});
+
+describe("what Zeus reads inside one conversation", () => {
+  it("is that conversation alone: its transcript, summary and items, nothing from any other", async () => {
+    const HERE = "aaaaaaaa-0000-4000-8000-000000000001";
+    const OTHER_REC = "aaaaaaaa-0000-4000-8000-000000000002";
+    const rec = (id: string, title: string, summary: string) => ({ id, user_id: OWNER, title, summary, started_at: "2026-11-18T14:00:00Z", time_zone: "America/New_York", duration_ms: 60_000 });
+    db = fakeDb({
+      recordings: [rec(HERE, "Dock call", "Sam repairs the dock."), rec(OTHER_REC, "Budget review", "Fuel is over budget.")],
+      utterances: [
+        { recording_id: HERE, user_id: OWNER, idx: 0, speaker: "A", start_ms: 0, text: "I'll send you the survey tonight." },
+        { recording_id: OTHER_REC, user_id: OWNER, idx: 0, speaker: "A", start_ms: 0, text: "Fuel came in eight percent over." },
+      ],
+      items: [
+        { id: SURVEY, recording_id: HERE, user_id: OWNER, type: "todo", text: "Email Sam the survey", state: "active", due_at: null, said: null },
+        { id: COUNTY, recording_id: OTHER_REC, user_id: OWNER, type: "todo", text: "Recheck fuel numbers", state: "active", due_at: null, said: null },
+      ],
+    });
+    const context = await buildContext(OWNER, HERE, "What did we agree?", "America/New_York");
+    expect(context).toContain("I'll send you the survey tonight.");
+    expect(context).toContain("Email Sam the survey");
+    expect(context).toContain("Sam repairs the dock.");
+    for (const elsewhere of ["Budget review", "Fuel is over budget.", "Fuel came in eight percent over.", "Recheck fuel numbers"]) expect(context).not.toContain(elsewhere);
   });
 });
