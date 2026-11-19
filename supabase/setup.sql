@@ -53,6 +53,10 @@ create table if not exists public.folders (
 );
 alter table public.recordings add column if not exists folder_id uuid references public.folders (id) on delete set null;
 create index if not exists recordings_folder on public.recordings (folder_id);
+-- Merging: a merged conversation lists the audio pieces it was built from (which recording, where each sits
+-- in the merged timeline); its originals go to Trash and point at it; each transcript line says which piece it came from.
+alter table public.recordings add column if not exists merged_from jsonb;
+alter table public.recordings add column if not exists merged_into uuid references public.recordings (id) on delete set null;
 create index if not exists recordings_user_started on public.recordings (user_id, started_at desc);
 create index if not exists recordings_status on public.recordings (status);
 create index if not exists recordings_fts on public.recordings using gin (fts);
@@ -70,6 +74,7 @@ create table if not exists public.utterances (
   unique (recording_id, idx)
 );
 create index if not exists utterances_fts on public.utterances using gin (fts);
+alter table public.utterances add column if not exists segment smallint not null default 0;
 
 create table if not exists public.items (
   id uuid primary key default gen_random_uuid(),

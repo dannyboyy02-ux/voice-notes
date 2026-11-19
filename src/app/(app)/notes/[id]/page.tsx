@@ -4,11 +4,12 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useApp } from "@/components/AppShell";
 import Bolt from "@/components/Bolt";
-import ConversationMenu from "@/components/ConversationMenu";
+import ConversationMenu, { dateLabel } from "@/components/ConversationMenu";
 import { MoreIcon } from "@/components/icons";
 import ZeusChat from "@/components/ZeusChat";
 import { api } from "@/lib/client/supabase";
 import { duration, stamp, when } from "@/lib/format";
+import { readPieces, seamText, type AudioPiece } from "@/lib/merge";
 import { ASSISTANT_NAME, CHEAP_MODEL } from "@/lib/models";
 import { STATUS_LABEL } from "@/lib/pipeline/steps";
 import { ITEM_COLUMNS, type Item, type Recording, type Utterance } from "@/lib/types";
@@ -28,7 +29,7 @@ const TABS: { id: Tab; label: React.ReactNode; name: string }[] = [
  * the tab bar at the foot of the screen is the way out.
  */
 function Note() {
-  const { db } = useApp();
+  const { db, merging } = useApp();
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const jumpTo = useSearchParams().get("t");
@@ -46,12 +47,12 @@ function Note() {
     const [r, i, u] = await Promise.all([
       db.from("recordings").select("*").eq("id", id).maybeSingle(),
       db.from("items").select(ITEM_COLUMNS).eq("recording_id", id).neq("state", "dismissed").order("created_at"),
-      db.from("utterances").select("idx, speaker, start_ms, end_ms, text").eq("recording_id", id).order("idx"),
+      db.from("utterances").select(`idx, speaker, start_ms, end_ms, text${merging ? ", segment" : ""}`).eq("recording_id", id).order("idx"),
     ]);
     setRec((r.data as Recording) ?? null);
     setItems((i.data as Item[]) ?? []);
-    setLines((u.data as Utterance[]) ?? []);
-  }, [db, id]);
+    setLines((u.data as unknown as Utterance[]) ?? []);
+  }, [db, id, merging]);
   useEffect(() => {
     let live = true;
     (async () => { if (live) await load(); })();
@@ -115,6 +116,8 @@ function Note() {
       </>
     );
   const speakerNames = [...new Set(lines.map((l) => l.speaker))];
+  // A merged conversation: its recordings, each with its own audio, and a divider where each begins.
+  const pieces = readPieces(rec.merged_from);
   const waiting = processing ? "It appears here once the recording has been processed." : "There is none for this recording.";
 
   return (
@@ -158,6 +161,7 @@ function Note() {
           )}
 
           <section className="card">
+            {pieces && <MergedAudio pieces={pieces} />}
             {rec.storage_path && !audioUrl && <button className="btn secondary" onClick={play}>Play audio</button>}
             {audioUrl && <audio controls src={audioUrl} style={{ width: "100%" }} />}
             {rec.audio_deleted_at && <p className="small muted">The audio was deleted 30 days after processing. The transcript stays.</p>}
@@ -174,10 +178,15 @@ function Note() {
         lines.length > 0 ? (
           <section className="card" data-testid="transcript">
             <div className="label">{speakerNames.length > 1 ? `${speakerNames.length} speakers` : "One speaker"}</div>
-            {lines.map((l) => (
-              <div key={l.idx} id={`u-${l.start_ms}`} style={nearest === l.start_ms ? { background: "var(--warn-soft)", borderRadius: 8, padding: 4 } : undefined}>
-                <span className="spk">Speaker {l.speaker}</span> <span className="small muted">{stamp(l.start_ms)}</span>
-                <div>{l.text}</div>
+            {lines.map((l, i) => (
+              <div key={l.idx}>
+                {pieces && (i === 0 || (lines[i - 1].segment ?? 0) !== (l.segment ?? 0)) && (
+                  <div className="seam" data-testid="seam">{seamText(pieces, l.segment ?? 0, dateLabel)}</div>
+                )}
+                <div id={`u-${l.start_ms}`} style={nearest === l.start_ms ? { background: "var(--warn-soft)", borderRadius: 8, padding: 4 } : undefined}>
+                  <span className="spk">Speaker {l.speaker}</span> <span className="small muted">{stamp(l.start_ms)}</span>
+                  <div>{l.text}</div>
+                </div>
               </div>
             ))}
           </section>
@@ -201,6 +210,39 @@ function Note() {
           onDeleted={() => router.push("/notes")}
         />
       )}
+    </>
+  );
+}
+
+/**
+ * The audio of a merged conversation: one player per recording it was made from, each playing only the
+ * stretch that is used (a stretch heard in two recordings plays from the first). The files stay with the
+ * originals, so a recording whose audio has been deleted shows that instead.
+ */
+function MergedAudio({ pieces }: { pieces: AudioPiece[] }) {
+  const { db } = useApp();
+  const [urls, setUrls] = useState<Record<number, string | null>>({});
+  const play = async (i: number) => {
+    const { data: row } = await db.from("recordings").select("storage_path").eq("id", pieces[i].recording_id).maybeSingle();
+    const path = (row as { storage_path: string | null } | null)?.storage_path;
+    if (!path) return setUrls((u) => ({ ...u, [i]: null }));
+    const { data } = await db.storage.from("audio").createSignedUrl(path, 3600);
+    const p = pieces[i];
+    setUrls((u) => ({ ...u, [i]: data ? `${data.signedUrl}#t=${(p.from_ms / 1000).toFixed(1)},${(p.to_ms / 1000).toFixed(1)}` : null }));
+  };
+  return (
+    <>
+      <div className="label">Audio, recording by recording</div>
+      {pieces.map((p, i) => (
+        <div key={i} data-testid="merged-audio">
+          <div className="spread">
+            <span className="small">{i + 1}. {p.title ?? "Untitled recording"} <span className="muted">· {dateLabel(p.started_at)}</span></span>
+            {urls[i] === undefined && <button className="btn small secondary" onClick={() => play(i)}>Play</button>}
+          </div>
+          {urls[i] === null && <p className="small muted">This recording&apos;s audio is no longer kept.</p>}
+          {urls[i] && <audio controls src={urls[i]!} style={{ width: "100%" }} />}
+        </div>
+      ))}
     </>
   );
 }

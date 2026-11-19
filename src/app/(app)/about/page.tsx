@@ -43,7 +43,8 @@ export default function AboutPage() {
       <section className="card about" data-testid="about-conversations">
         <h2>Conversations and folders</h2>
         <ul>
-          <li>Swipe a conversation left to delete it. Press and hold it for Share, Copy transcript, Move to folder, Export and Delete.</li>
+          <li>Swipe a conversation left to delete it. Press and hold it for Share, Copy transcript, Move to folder, Merge, Export and Delete.</li>
+          <li>Merge puts two or more finished conversations together as one, in the order they were recorded (you can change it). Where one recording ends and the next begins is marked in the transcript. If two recordings caught the same moments, such as the seam between part 1 and part 2, or one meeting recorded by another app and by this one, the lines heard in both are kept once. Speakers are kept apart unless you say who is who on the preview. Claude then writes one title and summary; the originals go to Trash.</li>
           <li>Deleted conversations wait in Trash, in Settings, for 30 days before they are erased.</li>
           <li>To bring in an audio file made elsewhere, tap the cloud at the top of Home or of a folder.</li>
           <li>A conversation sits in one folder at a time. File it with Move to folder, or from inside a folder with the three dots and Add conversations.</li>

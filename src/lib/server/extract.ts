@@ -14,16 +14,20 @@ To-dos are things the recorder (or the group) committed to do with no specific t
 
 Dates: you are given when the recording started and the recorder's time zone. Resolve spoken dates against that moment and write due_local as local wall-clock time, "YYYY-MM-DD HH:mm" (24-hour) or "YYYY-MM-DD" when only a day was said. "Morning" with no hour means 09:00, "afternoon" 14:00, "evening" 18:00, "tonight" 20:00. If the date is vague ("sometime next week", "soon", "in a few days"), leave due_local null, keep the spoken words in said, and set needs_review true. Never guess a date that was not said.
 
+A transcript can be several recordings merged into one conversation. A line between dashes ("--- Recording 2 of 3 · began … ---") marks where the next recording begins and when; the times in brackets run on across them. Write one title and summary for the whole, and resolve spoken dates in each recording against the time that recording began.
+
 Set needs_review true on any item you are unsure about. Set confidence to "low" if the transcript is garbled, the speakers are hard to tell apart, or you may have missed commitments; otherwise "high". If nothing actionable was said, return an empty items list.`;
 
-export type TranscriptLine = { speaker: string; start_ms: number; text: string };
+export type TranscriptLine = { speaker: string; start_ms: number; text: string; /** Divider shown before this line in a merged conversation. */ heading?: string };
 export type ExtractInput = { lines: TranscriptLine[]; startedAt: string; timeZone: string; model: ModelId };
 export type ExtractOutput = { result: ExtractionResult; modelUsed: string; inputTokens: number; outputTokens: number };
 
 const stamp = (ms: number) => `${String(Math.floor(ms / 60000)).padStart(2, "0")}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`;
 
 export function buildUserMessage(input: Omit<ExtractInput, "model">): string {
-  const body = input.lines.map((l) => `[${stamp(l.start_ms)} | at_ms=${l.start_ms}] Speaker ${l.speaker}: ${l.text}`).join("\n");
+  const body = input.lines
+    .map((l) => `${l.heading ? `--- ${l.heading.replace(/-{3,}/g, "-")} ---\n` : ""}[${stamp(l.start_ms)} | at_ms=${l.start_ms}] Speaker ${l.speaker}: ${l.text}`)
+    .join("\n");
   return `Recording started: ${recordingAnchor(input.startedAt, input.timeZone)}\nTime zone: ${input.timeZone}\n\n<transcript>\n${body}\n</transcript>`;
 }
 

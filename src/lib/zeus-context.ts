@@ -1,6 +1,6 @@
 /** Plain-text material Zeus is given. Kept free of server imports so it can be tested. */
 export type CtxRecording = { id: string; title: string | null; summary: string | null; started_at: string; time_zone: string; duration_ms: number | null };
-export type CtxLine = { recording_id: string; speaker: string; start_ms: number; text: string };
+export type CtxLine = { recording_id: string; speaker: string; start_ms: number; text: string; /** Where a merged conversation's next recording begins. */ heading?: string };
 export type CtxItem = { id: string; recording_id: string | null; type: string; text: string; due_at: string | null; state: string; said: string | null };
 
 /**
@@ -37,7 +37,7 @@ export function formatRecording(rec: CtxRecording, items: CtxItem[], lines: CtxL
   if (mine.length) parts.push("Items:", ...mine.map((i) => itemLine(i, rec.time_zone)));
   if (said.length) {
     parts.push(full ? "Transcript:" : "Matching transcript lines:");
-    parts.push(...said.map((l) => `[${stamp(l.start_ms)}] Speaker ${esc(l.speaker)}: ${esc(l.text)}`));
+    parts.push(...said.map((l) => `${full && l.heading ? `--- ${esc(l.heading)} ---\n` : ""}[${stamp(l.start_ms)}] Speaker ${esc(l.speaker)}: ${esc(l.text)}`));
   }
   parts.push("</recording>");
   return parts.join("\n");

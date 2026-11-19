@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
+import { mergeItems, planMerge, type MergeItem, type MergeSource } from "../src/lib/merge";
 
 /**
  * A walk through every screen with realistic data: several recordings in different states,
@@ -110,6 +111,7 @@ async function mockBackend(page: Page) {
       let rows = db.recordings.slice().sort((a, b) => String(b.started_at).localeCompare(String(a.started_at)));
       if (eq("id")) rows = rows.filter((r) => r.id === eq("id"));
       if (eq("folder_id")) rows = rows.filter((r) => r.folder_id === eq("folder_id"));
+      if (eq("status")) rows = rows.filter((r) => r.status === eq("status"));
       if (q.get("deleted_at") === "is.null") rows = rows.filter((r) => !r.deleted_at);
       if (q.get("deleted_at") === "not.is.null") rows = rows.filter((r) => r.deleted_at);
       return send(rows);
@@ -685,4 +687,108 @@ test("before the setup script is run again, Done works as it used to", async ({ 
   await page.getByLabel("Done: Email Sam the property survey").check();
   await expect.poll(() => db.items.find((i) => i.text === "Email Sam the property survey")?.state).toBe("done");
   await expect(done.getByTestId("item")).toHaveCount(3);
+});
+
+/**
+ * Stands in for the server's merge route in the browser tests, using the real merge planner on the mock
+ * database: the preview, and on commit a merged conversation with the originals moved to Trash.
+ */
+async function mockMerge(page: Page, db: ReturnType<typeof seed>) {
+  const posted: Row[] = [];
+  await page.route("**/api/recordings/merge", async (route) => {
+    const body = route.request().postDataJSON() as { ids: string[]; order?: string[]; speakers?: Record<string, string>; commit?: boolean };
+    posted.push(body);
+    const sources: MergeSource[] = body.ids.map((id) => {
+      const r = db.recordings.find((x) => x.id === id)!;
+      return {
+        id, title: r.title as string | null, started_at: r.started_at as string, duration_ms: r.duration_ms as number | null,
+        lines: db.utterances.filter((u) => u.recording_id === id).map((u) => ({ speaker: u.speaker as string, start_ms: u.start_ms as number, end_ms: u.end_ms as number, text: u.text as string })),
+      };
+    });
+    const plan = planMerge(sources, { order: body.order, speakers: body.speakers });
+    const view = { order: plan.order, segments: plan.segments, pieces: plan.pieces, warnings: plan.warnings, duration_ms: plan.duration_ms, speakers: plan.speakers, lines: plan.lines.length };
+    if (!body.commit) return route.fulfill({ json: { ...view, databaseReady: true } });
+    const id = "dddddddd-0000-4000-8000-000000000001";
+    const first = db.recordings.find((r) => r.id === plan.order[0])!;
+    db.recordings.push({ ...first, id, status: "ready", title: "Dock repair and the 2027 budget", summary: "Merged.", duration_ms: plan.duration_ms, storage_path: null, merged_from: plan.pieces, deleted_at: null });
+    plan.lines.forEach((l, idx) => db.utterances.push({ recording_id: id, idx, ...l }));
+    for (const it of mergeItems(db.items.filter((i) => body.ids.includes(i.recording_id as string)) as unknown as (MergeItem & Row)[], plan)) {
+      db.items.push({ ...it, id: `eeeeeeee-0000-4000-8000-${String(db.items.length).padStart(12, "0")}`, recording_id: id });
+    }
+    db.recordings = db.recordings.map((r) => (body.ids.includes(r.id as string) ? { ...r, deleted_at: new Date().toISOString(), merged_into: id } : r));
+    return route.fulfill({ json: { id, ...view } });
+  });
+  return posted;
+}
+
+test("two conversations merge into one, with the join shown, speakers matched and the originals in Trash", async ({ page }) => {
+  const db = await mockBackend(page);
+  const posted = await mockMerge(page, db);
+  // The budget meeting's transcript: its Speaker A is the same person as the dock call's Speaker A.
+  db.utterances.push(
+    { recording_id: REC.budget, idx: 0, speaker: "A", start_ms: 0, end_ms: 5000, text: "Let's go through the 2027 equipment budget line by line." },
+    { recording_id: REC.budget, idx: 1, speaker: "B", start_ms: 6000, end_ms: 11000, text: "Fuel is the line that moved most, about eight percent." },
+  );
+  await page.goto("/notes");
+  await page.getByLabel("Email").fill("daniel@example.com");
+  await page.getByLabel("Password").fill("pw");
+  await page.getByRole("button", { name: "Sign in" }).click();
+
+  // Press and hold the dock call, then Merge with…
+  await page.getByTestId("note").filter({ hasText: "Call with Sam about the dock" }).click({ button: "right" });
+  await page.getByTestId("merge-with").click();
+  await expect(page).toHaveURL(/\/merge\?with=/);
+  // Only finished conversations are offered; the failed and the still-transcribing ones are not.
+  await expect(page.getByTestId("merge-candidate")).toHaveCount(1);
+  await page.getByTestId("merge-candidate").getByRole("checkbox").check();
+  await page.getByTestId("merge-preview").click();
+
+  // The preview: in the order they were recorded, the gap between them, and who is who.
+  const segs = page.getByTestId("merge-segment");
+  await expect(segs).toHaveCount(2);
+  await expect(segs.nth(0)).toContainText("1. Call with Sam about the dock");
+  await expect(segs.nth(1)).toContainText("2. 2027 Budget Review");
+  await expect(segs.nth(1).getByTestId("merge-seam")).toContainText(/Begins .* after the one above ended/);
+  await expect(page.getByTestId("merge-summary")).toContainText("4 speakers");
+  await shot(page, "20-merge-preview");
+  await segs.nth(1).getByLabel("Speaker A in 2027 Budget Review: Equipment and Fuel").selectOption("A");
+  await expect(page.getByTestId("merge-summary")).toContainText("3 speakers");
+  expect(posted.at(-1)!.speakers).toEqual({ [`${REC.budget}:A`]: "A" });
+
+  // Reordering is the owner's call, and the preview follows it.
+  await segs.nth(1).getByRole("button", { name: /Move .* up/ }).click();
+  await expect(segs.nth(0)).toContainText("1. 2027 Budget Review");
+  await segs.nth(0).getByRole("button", { name: /Move .* down/ }).click();
+  await expect(segs.nth(0)).toContainText("1. Call with Sam about the dock");
+
+  await page.getByTestId("merge-commit").click();
+  await expect(page).toHaveURL(/\/notes\/dddddddd-0000-4000-8000-000000000001/);
+  await expect(page.getByTestId("note-title")).toHaveText("Dock repair and the 2027 budget");
+
+  // The transcript shows where each recording begins, and the matched speaker keeps one name.
+  await page.getByTestId("tab-transcript").click();
+  const seams = page.getByTestId("seam");
+  await expect(seams).toHaveCount(2);
+  await expect(seams.nth(0)).toContainText("Recording 1 of 2: Call with Sam about the dock");
+  await expect(seams.nth(1)).toContainText("Recording 2 of 2: 2027 Budget Review");
+  await expect(seams.nth(1)).toContainText(/· 23 h \d+ m after recording 1 ended/);
+  await expect(page.getByTestId("transcript")).toContainText("3 speakers");
+  await shot(page, "21-merged-transcript");
+
+  // The audio, recording by recording.
+  await page.getByTestId("tab-summary").click();
+  await expect(page.getByTestId("merged-audio")).toHaveCount(2);
+  await page.getByTestId("merged-audio").nth(0).getByRole("button", { name: "Play" }).click();
+  await expect(page.getByTestId("merged-audio").nth(0).locator("audio")).toHaveAttribute("src", /#t=\d+\.\d,\d+\.\d$/);
+
+  // The to-dos came across, with their place in the merged timeline.
+  const survey = db.items.find((i) => i.recording_id === "dddddddd-0000-4000-8000-000000000001" && i.text === "Email Sam the property survey");
+  expect(survey?.at_ms).toBe(412000);
+
+  // The originals are in Trash, marked as merged, and gone from Home.
+  await page.getByRole("link", { name: "Home" }).click();
+  await expect(page.getByTestId("note").filter({ hasText: "Call with Sam about the dock" })).toHaveCount(0);
+  await expect(page.getByTestId("note").filter({ hasText: "Dock repair and the 2027 budget" })).toHaveCount(1);
+  await page.goto("/trash");
+  await expect(page.getByTestId("trashed-merged")).toHaveCount(2);
 });
