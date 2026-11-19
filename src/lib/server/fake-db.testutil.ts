@@ -45,6 +45,7 @@ export function fakeDb(tables: Record<string, Row[]>, rpcs: Record<string, () =>
       delete() { op = "delete"; return q; },
       insert(rows: Row | Row[]) { op = "insert"; inserted = Array.isArray(rows) ? rows : [rows]; return q; },
       eq(c: string, v: unknown) { filters.push((r) => r[c] === v); return q; },
+      neq(c: string, v: unknown) { filters.push((r) => r[c] !== v); return q; },
       is(c: string, v: null) { filters.push((r) => (r[c] ?? null) === v); return q; },
       not(c: string, _op: "is", v: null) { filters.push((r) => (r[c] ?? null) !== v); return q; },
       lt(c: string, v: string) { filters.push((r) => r[c] != null && String(r[c]) < v); return q; },
