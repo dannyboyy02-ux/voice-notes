@@ -1,5 +1,7 @@
 import "server-only";
+import { recordingAnchor } from "../dates";
 import { buildItemRows, onlyNewItems } from "../items";
+import { readPieces, withHeadings } from "../merge";
 import { llmCostUsd, pickModel, shouldEscalate, sttCostUsd, BEST_MODEL, type ModelId, type ModelMode } from "../models";
 import { onStepFailure, onStepSuccess, type WorkStep } from "../pipeline/steps";
 import { adminDb, AUDIO_BUCKET } from "./db";
@@ -13,6 +15,8 @@ type Rec = {
   duration_ms: number | null; storage_path: string | null; aai_transcript_id: string | null;
   speakers: number | null; model_override: string | null; is_test: boolean; title: string | null;
   deleted_at?: string | null;
+  /** The audio pieces of a merged conversation (newer supabase/setup.sql). */
+  merged_from?: unknown;
 };
 
 export type TickReport = {
@@ -105,11 +109,15 @@ async function pollTranscription(rec: Rec): Promise<string> {
 /** transcribed > extracting > ready: ask Claude, save items, log cost. Safe to repeat. */
 async function extract(rec: Rec): Promise<string> {
   const db = adminDb();
-  const [{ data: lines, error: e1 }, { data: settings }] = await Promise.all([
-    db.from("utterances").select("speaker, start_ms, text").eq("recording_id", rec.id).order("idx"),
+  // A merged conversation's lines say which recording they came from, so Claude sees where each one begins.
+  const pieces = readPieces(rec.merged_from);
+  const [{ data: rawLines, error: e1 }, { data: settings }] = await Promise.all([
+    db.from("utterances").select(pieces ? "speaker, start_ms, text, segment" : "speaker, start_ms, text").eq("recording_id", rec.id).order("idx"),
     db.from("settings").select("model_mode").eq("user_id", rec.user_id).maybeSingle(),
   ]);
   if (e1) throw new Error(e1.message);
+  const lines = withHeadings((rawLines ?? []) as unknown as { speaker: string; start_ms: number; text: string; segment?: number }[], pieces, (iso) => recordingAnchor(iso, rec.time_zone))
+    .map(({ speaker, start_ms, text, heading }) => ({ speaker, start_ms, text, ...(heading ? { heading } : {}) }));
   const mode: ModelMode = rec.model_override === "best" ? "best" : ((settings?.model_mode as ModelMode) ?? "auto");
   const minutes = (rec.duration_ms ?? 0) / 60000;
   const speakers = rec.speakers ?? new Set((lines ?? []).map((l) => l.speaker)).size;

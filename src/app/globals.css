@@ -221,3 +221,5 @@ a.icon-btn { text-decoration: none; }
 .quiet-warn > span { white-space: nowrap; }
 .quiet-warn { width: calc(100% - 24px); display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border-radius: 12px; background: var(--warn-soft); color: var(--warn); font-size: 0.85rem; font-weight: 600; }
 .select { min-height: 36px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink); padding: 4px 10px; font-size: 0.9rem; }
+/* Merged conversations: where one recording ends and the next begins. */
+.seam { margin: 10px 0 6px; padding: 6px 10px; border-left: 3px solid #2f6bff; background: var(--accent-soft); border-radius: 6px; font-size: 0.8rem; color: var(--muted); }

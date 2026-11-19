@@ -5,11 +5,11 @@ import { useEffect, useState } from "react";
 import { useApp } from "@/components/AppShell";
 import { eraseRecording, restoreRecording } from "@/lib/client/recordings";
 
-type Trashed = { id: string; title: string | null; started_at: string; deleted_at: string; storage_path: string | null };
+type Trashed = { id: string; title: string | null; started_at: string; deleted_at: string; storage_path: string | null; merged_into?: string | null };
 const KEEP_DAYS = 30;
 
 export default function TrashPage() {
-  const { db, trash } = useApp();
+  const { db, trash, merging } = useApp();
   const [list, setList] = useState<Trashed[] | null>(null);
   const [message, setMessage] = useState("");
   const [now, setNow] = useState(0);
@@ -18,14 +18,14 @@ export default function TrashPage() {
     if (!trash) return;
     let live = true;
     (async () => {
-      const { data } = await db.from("recordings").select("id, title, started_at, deleted_at, storage_path")
+      const { data } = await db.from("recordings").select(`id, title, started_at, deleted_at, storage_path${merging ? ", merged_into" : ""}`)
         .not("deleted_at", "is", null).eq("is_test", false).order("deleted_at", { ascending: false });
       if (!live) return;
-      setList((data as Trashed[]) ?? []);
+      setList((data as unknown as Trashed[]) ?? []);
       setNow(Date.now());
     })();
     return () => { live = false; };
-  }, [db, trash]);
+  }, [db, trash, merging]);
 
   const drop = (id: string) => setList((l) => l?.filter((x) => x.id !== id) ?? null);
   const daysLeft = (deletedAt: string) => Math.max(0, KEEP_DAYS - Math.floor((now - new Date(deletedAt).getTime()) / 86_400_000));
@@ -55,12 +55,15 @@ export default function TrashPage() {
                     <div className="small muted">
                       Recorded {new Date(r.started_at).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })} • erased in {daysLeft(r.deleted_at)} days
                     </div>
+                    {r.merged_into && <div className="small muted" data-testid="trashed-merged">Merged into another conversation. Its audio plays there until this is erased.</div>}
                     <div className="row" style={{ marginTop: 6 }}>
                       <button className="btn small" onClick={async () => { const p = await restoreRecording(db, r.id); if (p) setMessage(p); else drop(r.id); }}>Restore</button>
                       <button
                         className="btn small danger"
                         onClick={async () => {
-                          if (!confirm("Erase this recording for good? This cannot be undone.")) return;
+                          if (!confirm(r.merged_into
+                            ? "Erase this recording for good? The conversation it was merged into keeps its transcript but loses this recording's audio. This cannot be undone."
+                            : "Erase this recording for good? This cannot be undone.")) return;
                           const p = await eraseRecording(db, r);
                           if (p) setMessage(p); else drop(r.id);
                         }}

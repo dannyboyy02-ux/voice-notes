@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { deleteRecording } from "@/lib/client/recordings";
 import { exportFileName, shareText, transcriptText, type ExportHead, type ExportLine } from "@/lib/export";
@@ -8,7 +9,7 @@ import { STATUS_LABEL } from "@/lib/pipeline/steps";
 import type { Folder, Recording } from "@/lib/types";
 import { useApp } from "./AppShell";
 
-export type ConversationRow = Pick<Recording, "id" | "title" | "summary" | "started_at" | "duration_ms" | "status" | "part" | "storage_path"> & { speakers?: number | null; folder_id?: string | null };
+export type ConversationRow = Pick<Recording, "id" | "title" | "summary" | "started_at" | "duration_ms" | "status" | "part" | "storage_path"> & { speakers?: number | null; folder_id?: string | null; merged_from?: unknown };
 
 export const dateLabel = (iso: string) => new Date(iso).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
 
@@ -39,6 +40,7 @@ export default function ConversationMenu({ row, peek = true, showFolder = true, 
   onDeleted?: () => void;
 }) {
   const { db, trash, folders } = useApp();
+  const router = useRouter();
   const [folderList, setFolderList] = useState<Folder[]>([]);
   const [view, setView] = useState<"menu" | "move">("menu");
   const [message, setMessage] = useState("");
@@ -190,8 +192,11 @@ export default function ConversationMenu({ row, peek = true, showFolder = true, 
             <button className="line" disabled={busy} onClick={share}><span>Share</span><span className="muted">Summary and action items</span></button>
             <button className="line" disabled={busy} onClick={copyTranscript}><span>Copy transcript</span></button>
             <button className="line" disabled={busy} onClick={() => { setMessage(""); setView("move"); }}><span>Move to folder</span><span className="muted">{folderName(row.folder_id) ?? "›"}</span></button>
+            <button className="line" disabled={busy || row.status !== "ready"} onClick={() => router.push(`/merge?with=${row.id}`)} data-testid="merge-with">
+              <span>Merge with…</span><span className="muted">{row.status === "ready" ? "›" : "Once it is ready"}</span>
+            </button>
             <button className="line" disabled={busy} onClick={exportTranscript}><span>Export transcript</span><span className="muted">Text file</span></button>
-            <button className="line" disabled={busy || !row.storage_path} onClick={exportAudio}><span>Export audio</span><span className="muted">{row.storage_path ? "Original file" : "No longer kept"}</span></button>
+            <button className="line" disabled={busy || !row.storage_path} onClick={exportAudio}><span>Export audio</span><span className="muted">{row.storage_path ? "Original file" : row.merged_from ? "Merged: no single file" : "No longer kept"}</span></button>
             <button className="line danger" disabled={busy} onClick={remove}><span>{trash ? "Move to Trash" : "Delete"}</span></button>
           </div>
         ) : !folders ? (

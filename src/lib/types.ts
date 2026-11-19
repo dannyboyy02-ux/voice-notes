@@ -2,6 +2,8 @@ import type { Status, WorkStep } from "./pipeline/steps";
 import type { ModelMode } from "./models";
 
 export type Recording = {
+  /** A merged conversation's audio pieces, and the conversation an original was merged into (newer supabase/setup.sql). */
+  merged_from?: unknown; merged_into?: string | null;
   id: string; started_at: string; time_zone: string; duration_ms: number | null; storage_path: string | null;
   bytes: number | null; part: number; status: Status; failed_step: WorkStep | null; attempts: number; last_error: string | null;
   speakers: number | null; model_used: string | null; input_tokens: number | null; output_tokens: number | null;
@@ -10,7 +12,7 @@ export type Recording = {
   /** Present once the database has folders (newer supabase/setup.sql). */
   folder_id?: string | null;
 };
-export type Utterance = { idx: number; speaker: string; start_ms: number; end_ms: number; text: string };
+export type Utterance = { idx: number; speaker: string; start_ms: number; end_ms: number; text: string; /** Which recording of a merged conversation the line came from. */ segment?: number };
 export type Item = {
   id: string; recording_id: string | null; type: "todo" | "reminder"; text: string; due_at: string | null;
   due_local: string | null; said: string | null; quote: string | null; at_ms: number | null;

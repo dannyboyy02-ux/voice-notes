@@ -1,7 +1,8 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { DateTime } from "luxon";
-import { isValidTimeZone, resolveDue } from "../dates";
+import { isValidTimeZone, recordingAnchor, resolveDue } from "../dates";
+import { readPieces, withHeadings } from "../merge";
 import { ASSISTANT_NAME, CHAT_MODEL } from "../models";
 import { confirmMarker, stripMarkerChars, WAITING_FOR_OWNER, type ConfirmAction } from "../zeus-confirm";
 import { formatLooseItems, formatRecording, searchTerms, type CtxItem, type CtxLine, type CtxRecording } from "../zeus-context";
@@ -36,7 +37,18 @@ export async function buildContext(userId: string, recordingId: string | null, q
       db.from("items").select(COLS_ITEM).eq("recording_id", recordingId).eq("user_id", userId).neq("state", "dismissed"),
     ]);
     if (!rec) throw new Error("That recording was not found.");
-    return `The owner is asking about this one recording. You have its full transcript.\n\n${formatRecording(rec as CtxRecording, (items ?? []) as CtxItem[], (lines ?? []) as CtxLine[], true)}`;
+    let said = (lines ?? []) as CtxLine[];
+    // A merged conversation: mark where each of its recordings begins. Skipped quietly on a database without merging.
+    const extra = await db.from("recordings").select("merged_from").eq("id", recordingId).eq("user_id", userId).maybeSingle();
+    const pieces = extra.error ? null : readPieces((extra.data as { merged_from?: unknown } | null)?.merged_from);
+    if (pieces) {
+      const segs = await db.from("utterances").select("segment").eq("recording_id", recordingId).eq("user_id", userId).order("idx");
+      if (!segs.error && segs.data?.length === said.length) {
+        const r = rec as CtxRecording;
+        said = withHeadings(said.map((l, i) => ({ ...l, segment: (segs.data[i] as { segment: number }).segment })), pieces, (iso) => recordingAnchor(iso, r.time_zone));
+      }
+    }
+    return `The owner is asking about this one recording. You have its full transcript.\n\n${formatRecording(rec as CtxRecording, (items ?? []) as CtxItem[], said, true)}`;
   }
 
   const terms = searchTerms(question);
