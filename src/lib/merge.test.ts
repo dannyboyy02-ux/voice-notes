@@ -231,6 +231,14 @@ describe("mergeItems", () => {
   it("ignores items of recordings that are not in the merge", () => {
     expect(mergeItems([item("1", "elsewhere", "Anything", "active")], plan)).toEqual([]);
   });
+
+  it("carries each item's completion time to the copy, so a merge does not put it back under Done today", () => {
+    const out = mergeItems([
+      { ...item("1", "a", "Email Sam the survey", "done"), done_at: "2026-11-02T15:30:00.000Z" },
+      { ...item("2", "b", "Order pallet jacks", "done"), done_at: null },
+    ], plan);
+    expect(out.map((i) => [i.id, i.done_at])).toEqual([["1", "2026-11-02T15:30:00.000Z"], ["2", null]]);
+  });
 });
 
 describe("seamText and readPieces", () => {

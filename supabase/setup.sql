@@ -227,12 +227,21 @@ create trigger recordings_touch before update on public.recordings
   for each row execute function public.touch_updated_at();
 
 -- done_at follows the state: stamped when an item becomes done, kept while it stays done, cleared when it
--- is opened again. Whatever a client sends for done_at is ignored.
+-- is opened again. Whatever the phone sends for done_at is ignored. The one exception is the server saving
+-- an item that is already done: merging copies completed items into the merged conversation, and they keep
+-- the completion time they had (empty for items completed before completion times existed), so they do not
+-- reappear under "Done today" on the day of the merge.
 create or replace function public.stamp_done_at() returns trigger
 language plpgsql set search_path = '' as $$
 begin
   if new.state = 'done' then
-    new.done_at := case when tg_op = 'UPDATE' and old.state = 'done' then old.done_at else now() end;
+    if tg_op = 'INSERT' and current_user = 'service_role' then
+      null; -- a copy made by the server keeps the time it was given
+    elsif tg_op = 'UPDATE' and old.state = 'done' then
+      new.done_at := old.done_at;
+    else
+      new.done_at := now();
+    end if;
   else
     new.done_at := null;
   end if;
